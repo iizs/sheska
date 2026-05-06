@@ -1,0 +1,31 @@
+services:
+  backend:
+    build: ./backend
+    env_file: .env
+    volumes:
+      - source-store:/app/source-store
+      - wiki-store:/app/wiki-store
+      - ./prompts:/app/prompts
+    depends_on: []
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    env_file: .env
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - wiki-store:/wiki-store:ro
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+
+volumes:
+  source-store:
+  wiki-store:

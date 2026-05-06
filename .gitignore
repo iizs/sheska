@@ -1,0 +1,20 @@
+# Python
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.pyc
+backend/sheska.db
+backend/test.db
+backend/source-store/
+backend/wiki-store/
+
+# Node
+frontend/node_modules/
+frontend/.next/
+
+# Env
+.env
+backend/.env
+
+# macOS
+.DS_Store
