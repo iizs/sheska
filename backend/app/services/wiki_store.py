@@ -20,24 +20,75 @@ def _get_repo(wiki_path: Path) -> git.Repo:
     return git.Repo(wiki_path)
 
 
-def parse_llm_pages(llm_output: str, fallback_stem: str = "page") -> dict[str, str]:
-    """Parse LLM output formatted as === FILE: name.md === sections.
+def _slugify(text: str, default: str = "page") -> str:
+    """Filename-safe kebab-case slug. Preserves unicode word chars (한글 포함)."""
+    slug = re.sub(r"[^\w-]+", "-", text, flags=re.UNICODE).strip("-").lower()
+    return slug or default
 
-    Fallback: if no markers but the output has YAML frontmatter (---...---),
-    treat the entire response as one page named '<fallback_stem>.md'.
+
+def _auto_frontmatter(source_filename: str) -> str:
+    now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    return (
+        "---\n"
+        "type: reference\n"
+        f"created: {now}\n"
+        f"last_updated: {now}\n"
+        "tags: []\n"
+        "sources:\n"
+        f'  - "{source_filename}"\n'
+        "---\n"
+    )
+
+
+def parse_llm_pages(
+    llm_output: str,
+    fallback_stem: str = "page",
+    source_filename: str = "",
+) -> dict[str, str]:
+    """Parse LLM output into wiki pages.
+
+    Strategy (most specific → most lenient):
+      1. '=== FILE: <name>.md ===' markers (multiple pages supported)
+      2. valid '---\\n<yaml>\\n---\\n<body>' frontmatter (single page)
+      3. dangling '---' opener with content but no proper yaml → strip + auto-frontmatter
+      4. no '---' but has '#' heading → use as body + auto-frontmatter; title from first heading
+      5. otherwise (pure commentary, no heading) → empty dict (caller raises)
     """
     pages: dict[str, str] = {}
+
     pattern = re.compile(r"=== FILE: (.+?\.md) ===\n(.*?)(?==== FILE:|$)", re.DOTALL)
     for match in pattern.finditer(llm_output):
         filename = match.group(1).strip()
         content = match.group(2).strip()
         pages[filename] = content
+    if pages:
+        return pages
 
-    if not pages:
-        stripped = llm_output.strip()
-        if stripped.startswith("---") and "---" in stripped[3:]:
-            safe_stem = re.sub(r"[^a-zA-Z0-9_-]+", "-", fallback_stem).strip("-").lower() or "page"
-            pages[f"{safe_stem}.md"] = stripped
+    stripped = llm_output.strip()
+    if not stripped:
+        return {}
+
+    # Reject pure commentary — must have at least one '#' heading anywhere
+    if not re.search(r"^#+\s+\S", stripped, re.MULTILINE):
+        return {}
+
+    src = source_filename or fallback_stem
+
+    fm_match = re.match(r"^---\n(.*?)\n---\n?(.*)$", stripped, re.DOTALL)
+    if fm_match and fm_match.group(1).strip():
+        # Case 2: valid frontmatter present → keep as-is
+        body = fm_match.group(2).lstrip("\n")
+        final = stripped
+    else:
+        # Case 3/4: leading '---' but no yaml, or no '---' at all → strip dangling opener
+        body = re.sub(r"^---\s*\n", "", stripped, count=1)
+        final = _auto_frontmatter(src) + body.strip() + "\n"
+
+    title_match = re.search(r"^#+\s+(.+?)\s*$", body, re.MULTILINE)
+    title = title_match.group(1).strip() if title_match else fallback_stem
+    page_stem = _slugify(title, default=_slugify(fallback_stem))
+
+    pages[f"{page_stem}.md"] = final
     return pages
 
 

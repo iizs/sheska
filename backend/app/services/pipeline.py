@@ -46,7 +46,11 @@ async def run_ingest(source_path: str, db: AsyncSession, job_id: str = ""):
     llm_output = await call_llm(system_prompt, user_content)
     logger.info(f"[INGEST] LLM raw output ({len(llm_output)} chars): {llm_output[:500]!r}")
 
-    pages = wiki_store.parse_llm_pages(llm_output, fallback_stem=Path(source_filename).stem)
+    pages = wiki_store.parse_llm_pages(
+        llm_output,
+        fallback_stem=Path(source_filename).stem,
+        source_filename=source_filename,
+    )
     if not pages:
         snippet = llm_output[:200].replace("\n", " ")
         raise ValueError(

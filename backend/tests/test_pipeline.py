@@ -289,6 +289,106 @@ async def test_ingest_raises_when_unparseable(tmp_path):
             await run_ingest(str(source_file), db=None, job_id="junk-1")
 
 
+def test_parser_dangling_dashes_no_yaml():
+    """LLM이 '---' 시작했지만 yaml 없이 본문으로 가는 케이스 (gemma 실측 패턴)"""
+    from app.services import wiki_store
+    output = "---\n# 감자 샐러드\n\n블로그 레시피를 기반으로 한 버전입니다.\n"
+    pages = wiki_store.parse_llm_pages(
+        output, fallback_stem="potato_recipe", source_filename="potato_recipe.md"
+    )
+    assert len(pages) == 1
+    filename, content = next(iter(pages.items()))
+    assert filename.endswith(".md")
+    # 자동 frontmatter 삽입 확인
+    assert content.startswith("---\n")
+    assert "type: reference" in content
+    assert 'sources:\n  - "potato_recipe.md"' in content
+    # 본문 보존 확인
+    assert "# 감자 샐러드" in content
+    assert "블로그 레시피" in content
+    # dangling --- 제거 확인 — 첫 frontmatter 블록 외에 다른 --- 없어야 함
+    assert content.count("---") == 2
+
+
+def test_parser_no_frontmatter_with_heading():
+    """frontmatter 없이 # 제목으로 시작하면 자동 frontmatter 삽입 후 페이지 생성"""
+    from app.services import wiki_store
+    output = "# Product Overview\n\nA CLI tool for tasks."
+    pages = wiki_store.parse_llm_pages(
+        output, fallback_stem="spec", source_filename="spec.txt"
+    )
+    assert len(pages) == 1
+    filename, content = next(iter(pages.items()))
+    assert "product-overview" in filename.lower()
+    assert content.startswith("---\n")
+    assert "# Product Overview" in content
+    assert 'sources:\n  - "spec.txt"' in content
+
+
+def test_parser_pure_commentary_returns_empty():
+    """평론형 응답은 빈 dict — 호출자가 raise"""
+    from app.services import wiki_store
+    output = "This is a well-structured recipe note. If you'd like, I can help you archive it."
+    pages = wiki_store.parse_llm_pages(output, fallback_stem="recipe", source_filename="recipe.md")
+    assert pages == {}
+
+
+def test_parser_valid_frontmatter_preserved():
+    """기존 동작: 정상 frontmatter는 그대로 보존 (회귀 방지)"""
+    from app.services import wiki_store
+    output = (
+        "---\n"
+        "type: concept\n"
+        "created: 2026-05-07 00:00:00\n"
+        "last_updated: 2026-05-07 00:00:00\n"
+        "tags: [test]\n"
+        "sources:\n  - \"x.md\"\n"
+        "---\n"
+        "# Title\n\nBody."
+    )
+    pages = wiki_store.parse_llm_pages(output, fallback_stem="x", source_filename="x.md")
+    assert len(pages) == 1
+    filename, content = next(iter(pages.items()))
+    assert content == output  # 변형 없음
+    # 자동 frontmatter 안 들어갔어야 — 'type: reference' 가 들어가면 안 됨
+    assert "type: reference" not in content
+
+
+@pytest.mark.asyncio
+async def test_ingest_dangling_dashes_creates_page(tmp_path):
+    """End-to-end: gemma의 실측 출력 패턴이 INGEST 흐름을 통과해 페이지로 저장됨"""
+    source_file = tmp_path / "potato.md"
+    source_file.write_text("recipe content")
+    wiki_path = tmp_path / "wiki"
+    wiki_path.mkdir()
+
+    gemma_output = (
+        "---\n"
+        "# 감자 샐러드\n\n"
+        "블로그 레시피 기반.\n\n"
+        "## 재료\n- 감자 4lb\n- 계란 6개\n"
+    )
+
+    with patch("app.services.pipeline.get_settings") as mock_settings, \
+         patch("app.services.pipeline.call_llm", new_callable=AsyncMock, return_value=gemma_output):
+        s = mock_settings.return_value
+        s.wiki_store_path = str(wiki_path)
+        s.prompts_path = str(tmp_path / "prompts")
+        s.source_base_url = ""
+
+        from app.services.pipeline import run_ingest
+        await run_ingest(str(source_file), db=None, job_id="gemma-1")
+
+    md_files = list(wiki_path.glob("*.md"))
+    page_files = [p for p in md_files if p.name not in ("index.md", "log.md")]
+    assert len(page_files) == 1
+    page = page_files[0]
+    text = page.read_text()
+    assert text.startswith("---\n")
+    assert "type: reference" in text
+    assert "# 감자 샐러드" in text
+
+
 @pytest.mark.asyncio
 async def test_sc16c_log_contains_job_id_not_edit_text(tmp_path):
     """SC-16-c: log.md에 job_id + 결과만, 요청 전문 없음"""
