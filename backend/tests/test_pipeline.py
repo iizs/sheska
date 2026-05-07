@@ -133,12 +133,43 @@ async def test_sc14_sources_frontmatter(tmp_path):
         s = mock_settings.return_value
         s.wiki_store_path = str(wiki_path)
         s.prompts_path = str(tmp_path / "prompts")
+        s.source_base_url = "http://localhost:8000/api/sources"
 
         from app.services.pipeline import run_ingest
         await run_ingest(str(source_file), db=None, job_id="test-job-4")
 
     content = (wiki_path / "product-overview.md").read_text()
     assert '"test.txt"' in content
+
+    sheska_yaml = wiki_path / "_sheska.yaml"
+    assert sheska_yaml.exists(), "_sheska.yaml 파일이 존재해야 함"
+    yaml_content = sheska_yaml.read_text()
+    assert "source_base_url" in yaml_content
+
+
+@pytest.mark.asyncio
+async def test_sc26_sheska_yaml_created_on_ingest(tmp_path):
+    """SC-26: Ingest 완료 후 _sheska.yaml에 source_base_url 기록"""
+    source_file = tmp_path / "doc.txt"
+    source_file.write_text("content")
+    wiki_path = tmp_path / "wiki"
+    wiki_path.mkdir()
+
+    with patch("app.services.pipeline.get_settings") as mock_settings, \
+         patch("app.services.pipeline.call_llm", new_callable=AsyncMock, return_value=MOCK_INGEST_OUTPUT):
+        s = mock_settings.return_value
+        s.wiki_store_path = str(wiki_path)
+        s.prompts_path = str(tmp_path / "prompts")
+        s.source_base_url = "http://localhost:8000/api/sources"
+
+        from app.services.pipeline import run_ingest
+        await run_ingest(str(source_file), db=None, job_id="sc26-test")
+
+    sheska_yaml = wiki_path / "_sheska.yaml"
+    assert sheska_yaml.exists()
+    content = sheska_yaml.read_text()
+    assert "source_base_url" in content
+    assert "http://localhost:8000/api/sources" in content
 
 
 @pytest.mark.asyncio

@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     litellm_base_url: str = ""
 
     allowed_extensions: List[str] = ["pdf", "txt", "md"]
+    source_base_url: str = ""
 
     class Config:
         env_file = ".env"

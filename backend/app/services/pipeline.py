@@ -36,6 +36,7 @@ async def run_ingest(source_path: str, db: AsyncSession, job_id: str = ""):
     settings = get_settings()
     wiki_path = Path(settings.wiki_store_path)
     wiki_store._get_repo(wiki_path)
+    wiki_store.ensure_sheska_yaml(wiki_path, settings.source_base_url)
 
     source_text = _parse_source_text(source_path)
     source_filename = Path(source_path).name
