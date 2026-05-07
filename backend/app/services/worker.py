@@ -27,9 +27,9 @@ async def _process_job(job: Job, db: AsyncSession):
 
     try:
         if job.type == JobType.ingest:
-            await run_ingest(job.payload["source_path"], db)
+            await run_ingest(job.payload["source_path"], db, job_id=job.id)
         elif job.type == JobType.edit:
-            await run_edit(job.payload["page_path"], job.payload["edit_text"], db)
+            await run_edit(job.payload["page_path"], job.payload["edit_text"], db, job_id=job.id)
         job.status = JobStatus.done
     except Exception as e:
         logger.error(f"Job {job.id} failed: {e}")

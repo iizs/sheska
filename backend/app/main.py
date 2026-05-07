@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .db import create_tables, init_db_globals, _session_factory, get_session_factory, get_engine
 from .models import user, job  # noqa: register models
-from .routes import auth, users, jobs
+from .routes import auth, users, jobs, sources, wiki
 from .services.worker import init_worker, worker_loop
 from .config import get_settings
 from pathlib import Path
@@ -50,6 +50,8 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(jobs.router)
+app.include_router(sources.router)
+app.include_router(wiki.router)
 
 
 @app.get("/api/health")
