@@ -6,7 +6,7 @@ from sqlalchemy import select
 from pydantic import BaseModel, EmailStr
 from ..db import get_db
 from ..models.user import User, Role
-from ..services.auth_service import hash_password, require_admin
+from ..services.auth_service import hash_password, require_admin, get_current_user
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -29,6 +29,11 @@ class UserResponse(BaseModel):
 
 class RoleUpdate(BaseModel):
     role: Role
+
+
+@router.get("/me", response_model=UserResponse)
+async def get_me(current_user: User = Depends(get_current_user)):
+    return current_user
 
 
 @router.get("/", response_model=List[UserResponse])
