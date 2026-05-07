@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     allowed_extensions: List[str] = ["pdf", "txt", "md"]
     source_base_url: str = ""
 
+    signup_enabled: bool = True
+    password_min_length: int = 8
+
     class Config:
         env_file = str(ENV_FILE) if ENV_FILE.exists() else ".env"
 

@@ -20,49 +20,51 @@ export default function GuidePage() {
     <div className="min-h-screen">
       <Nav role={role} />
       <div className="max-w-3xl mx-auto p-6 prose prose-sm">
-        <h1>로컬 연동 가이드</h1>
+        <h1>Local Sync Guide</h1>
 
-        <h2>1. Git Clone / Pull (SC-24)</h2>
-        <p>Wiki Store를 로컬에 복제하면 <code>_sheska.yaml</code>을 포함한 전체 위키를 받을 수 있습니다.</p>
-        <pre className="bg-gray-100 rounded p-3 text-sm overflow-x-auto">{`# 최초 복제
+        <h2>1. Git Clone / Pull</h2>
+        <p>Clone the wiki store locally to get the entire wiki, including <code>_sheska.yaml</code>.</p>
+        <pre className="bg-gray-100 rounded p-3 text-sm overflow-x-auto">{`# Initial clone
 git clone http://${host}/git/wiki-store.git
 
-# 이후 업데이트
+# Subsequent updates
 git -C wiki-store pull`}</pre>
 
-        <h2>2. ZIP 다운로드 (SC-25)</h2>
+        <h2>2. ZIP Download</h2>
         <p>
-          Wiki 탭 상단의 <strong>ZIP 다운로드</strong> 버튼을 클릭하거나 아래 API를 직접 호출하세요.
+          Click the <strong>Download ZIP</strong> button at the top of the Wiki tab, or call the API directly.
         </p>
         <pre className="bg-gray-100 rounded p-3 text-sm overflow-x-auto">{`GET /api/wiki/zip
 Authorization: Bearer <JWT>`}</pre>
 
-        <h2>3. source_base_url 설정 (SC-26)</h2>
+        <h2>3. source_base_url Setup</h2>
         <p>
-          위키 루트의 <code>_sheska.yaml</code>에 <code>source_base_url</code>이 기록됩니다. 환경 변수로 설정하세요.
+          The <code>source_base_url</code> is recorded in <code>_sheska.yaml</code> at the wiki root.
+          Set it via environment variable on the Sheska server.
         </p>
-        <pre className="bg-gray-100 rounded p-3 text-sm overflow-x-auto">{`# .env
+        <pre className="bg-gray-100 rounded p-3 text-sm overflow-x-auto">{`# .env on the Sheska server
 SOURCE_BASE_URL=https://sheska.yourcompany.com/api/sources`}</pre>
         <p>
-          위키 페이지 <code>sources</code> frontmatter의 파일명과 합쳐 원본 접근 URL이 됩니다.
+          A wiki page&apos;s <code>sources</code> frontmatter holds only the original filename. Combined with
+          <code>source_base_url</code>, this yields the full access URL.
         </p>
-        <pre className="bg-gray-100 rounded p-3 text-sm overflow-x-auto">{`# 위키 페이지 frontmatter
+        <pre className="bg-gray-100 rounded p-3 text-sm overflow-x-auto">{`# Wiki page frontmatter
 sources:
   - "product_spec.pdf"
 
-# 실제 접근 URL
+# Resolved access URL
 https://sheska.yourcompany.com/api/sources/product_spec.pdf`}</pre>
 
-        <h2>4. 에이전트 연동 프롬프트 예시</h2>
-        <p>로컬에 복제한 위키를 LLM 에이전트에 연결할 때 사용하는 기본 프롬프트 예시입니다.</p>
-        <pre className="bg-gray-100 rounded p-3 text-sm overflow-x-auto">{`당신은 팀 위키 어시스턴트입니다.
-위키는 /path/to/wiki-store 에 Obsidian Markdown 형식으로 저장되어 있습니다.
+        <h2>4. Agent Integration Prompt Example</h2>
+        <p>An example prompt for connecting your locally cloned wiki to an LLM agent.</p>
+        <pre className="bg-gray-100 rounded p-3 text-sm overflow-x-auto">{`You are a team wiki assistant.
+The wiki lives at /path/to/wiki-store in Obsidian Markdown format.
 
-시작 시:
-1. index.md를 읽어 전체 위키 구조를 파악하세요.
-2. _sheska.yaml에서 source_base_url을 확인하세요.
-3. 질문에 답할 때 관련 페이지를 읽고 [[링크]]로 참조하세요.
-4. 원본 파일이 필요하면 source_base_url + 파일명으로 접근하세요.`}</pre>
+On startup:
+1. Read index.md to understand the wiki structure.
+2. Check _sheska.yaml for the source_base_url.
+3. When answering, read relevant pages and reference them with [[wikilinks]].
+4. To access source files, fetch source_base_url + filename.`}</pre>
       </div>
     </div>
   );

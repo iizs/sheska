@@ -92,7 +92,8 @@ async def test_jobs_tab_member_sees_own_jobs(client: AsyncClient):
     token = await get_token(client, "member@test.com", "memberpass")
     resp = await client.get("/api/jobs/", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
+    body = resp.json()
+    assert "items" in body and isinstance(body["items"], list)
 
 
 @pytest.mark.asyncio
@@ -101,4 +102,5 @@ async def test_jobs_tab_admin_sees_all_jobs(client: AsyncClient):
     token = await get_token(client, "admin@test.com", "adminpass")
     resp = await client.get("/api/jobs/", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
+    body = resp.json()
+    assert "items" in body and isinstance(body["items"], list)

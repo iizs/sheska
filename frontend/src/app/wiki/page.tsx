@@ -45,11 +45,11 @@ export default function WikiListPage() {
             onClick={handleZipDownload}
             className="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg"
           >
-            ZIP 다운로드
+            Download ZIP
           </button>
         </div>
         {pages.length === 0 ? (
-          <p className="text-gray-500">아직 위키 페이지가 없습니다.</p>
+          <p className="text-gray-500">No wiki pages yet.</p>
         ) : (
           <ul className="space-y-2">
             {pages.map((p) => (

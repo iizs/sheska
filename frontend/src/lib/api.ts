@@ -27,10 +27,12 @@ async function request<T>(
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail ?? res.statusText);
   }
-  if (res.headers.get("content-type")?.includes("application/zip")) {
-    return res.blob() as unknown as T;
+  const ct = res.headers.get("content-type") ?? "";
+  if (ct.includes("application/json")) {
+    return res.json();
   }
-  return res.json();
+  // application/zip, octet-stream, text/* 등 binary/non-json은 Blob으로 반환
+  return res.blob() as unknown as T;
 }
 
 export function setToken(token: string) {
@@ -92,10 +94,50 @@ export async function uploadSource(file: File) {
   return request("/sources/", { method: "POST", body: form });
 }
 
-export async function listJobs() {
-  return request<any[]>("/jobs/");
+export async function listJobs(page = 1, size = 20) {
+  return request<{ items: any[]; total: number; page: number; size: number }>(
+    `/jobs/?page=${page}&size=${size}`
+  );
 }
 
 export async function getJob(jobId: string) {
   return request<any>(`/jobs/${jobId}`);
+}
+
+export async function getAuthConfig() {
+  return request<{ signup_enabled: boolean }>("/auth/config");
+}
+
+export async function signup(email: string, password: string) {
+  const data = await request<{ access_token: string }>("/auth/signup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  setToken(data.access_token);
+  return data;
+}
+
+export async function listUsers() {
+  return request<any[]>("/users/");
+}
+
+export async function updateUserRole(userId: number, role: "admin" | "member") {
+  return request(`/users/${userId}/role`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role }),
+  });
+}
+
+export async function updateUserActive(userId: number, isActive: boolean) {
+  return request(`/users/${userId}/active`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ is_active: isActive }),
+  });
+}
+
+export async function downloadSource(filename: string): Promise<Blob> {
+  return request<Blob>(`/sources/${encodeURIComponent(filename)}`);
 }

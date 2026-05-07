@@ -9,22 +9,23 @@ from .conftest import get_token
 
 @pytest.mark.asyncio
 async def test_sc17a_member_sees_own_jobs_only(client: AsyncClient):
-    """SC-17-a: Member는 본인 Job만 조회"""
+    """SC-17-a: Member는 본인 Job만 조회 (페이징 응답)"""
     token = await get_token(client, "member@test.com", "memberpass")
     resp = await client.get("/api/jobs/", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
-    jobs = resp.json()
-    # member는 자신의 job만 볼 수 있어야 함 (빈 목록도 허용)
-    assert isinstance(jobs, list)
+    body = resp.json()
+    assert isinstance(body["items"], list)
+    assert "total" in body and "page" in body and "size" in body
 
 
 @pytest.mark.asyncio
 async def test_sc17b_admin_sees_all_jobs(client: AsyncClient):
-    """SC-17-b: Admin은 전체 Job 조회 가능"""
+    """SC-17-b: Admin은 전체 Job 조회 가능 (페이징 응답)"""
     token = await get_token(client, "admin@test.com", "adminpass")
     resp = await client.get("/api/jobs/", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
+    body = resp.json()
+    assert isinstance(body["items"], list)
 
 
 @pytest.mark.asyncio

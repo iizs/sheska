@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
-import { listSources, uploadSource, getMe } from "@/lib/api";
+import { listSources, uploadSource, getMe, downloadSource } from "@/lib/api";
 
 interface SourceFile { filename: string; size: number }
 
@@ -42,8 +42,19 @@ export default function SourcesPage() {
     }
   }
 
-  function downloadUrl(filename: string) {
-    return `/api/sources/${encodeURIComponent(filename)}`;
+  async function handleDownload(filename: string) {
+    setError("");
+    try {
+      const blob = await downloadSource(filename);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setError(e.message);
+    }
   }
 
   if (loading) return <div className="p-8">Loading...</div>;
@@ -56,14 +67,14 @@ export default function SourcesPage() {
           <h1 className="text-2xl font-bold">Sources</h1>
           {role === "admin" && (
             <label className="cursor-pointer bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700">
-              {uploading ? "업로드 중..." : "파일 업로드"}
+              {uploading ? "Uploading..." : "Upload file"}
               <input type="file" className="hidden" onChange={handleUpload} accept=".pdf,.txt,.md" disabled={uploading} />
             </label>
           )}
         </div>
         {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
         {sources.length === 0 ? (
-          <p className="text-gray-500">업로드된 원본 파일이 없습니다.</p>
+          <p className="text-gray-500">No source files uploaded yet.</p>
         ) : (
           <ul className="space-y-2">
             {sources.map((s) => (
@@ -71,13 +82,12 @@ export default function SourcesPage() {
                 <span className="text-sm">{s.filename}</span>
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-gray-400">{(s.size / 1024).toFixed(1)} KB</span>
-                  <a
-                    href={downloadUrl(s.filename)}
-                    download={s.filename}
+                  <button
+                    onClick={() => handleDownload(s.filename)}
                     className="text-xs text-indigo-600 hover:underline"
                   >
-                    다운로드
-                  </a>
+                    Download
+                  </button>
                 </div>
               </li>
             ))}

@@ -1,8 +1,9 @@
 from __future__ import annotations
-from typing import List
+from datetime import datetime
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from pydantic import BaseModel, EmailStr
 from ..db import get_db
 from ..models.user import User, Role
@@ -22,6 +23,7 @@ class UserResponse(BaseModel):
     email: str
     role: Role
     is_active: bool
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -29,6 +31,25 @@ class UserResponse(BaseModel):
 
 class RoleUpdate(BaseModel):
     role: Role
+
+
+class ActiveUpdate(BaseModel):
+    is_active: bool
+
+
+async def _active_admin_count(db: AsyncSession) -> int:
+    result = await db.execute(
+        select(func.count(User.id)).where(User.role == Role.admin, User.is_active == True)
+    )
+    return result.scalar_one()
+
+
+def _ensure_not_self(actor: User, target_id: int):
+    if actor.id == target_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot modify your own role or active status",
+        )
 
 
 @router.get("/me", response_model=UserResponse)
@@ -72,11 +93,55 @@ async def update_role(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    _ensure_not_self(admin, user_id)
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    if (
+        user.role == Role.admin
+        and user.is_active
+        and body.role != Role.admin
+        and await _active_admin_count(db) <= 1
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot demote the last active admin",
+        )
+
     user.role = body.role
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+@router.patch("/{user_id}/active", response_model=UserResponse)
+async def update_active(
+    user_id: int,
+    body: ActiveUpdate,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    _ensure_not_self(admin, user_id)
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if (
+        user.role == Role.admin
+        and user.is_active
+        and body.is_active is False
+        and await _active_admin_count(db) <= 1
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot deactivate the last active admin",
+        )
+
+    user.is_active = body.is_active
     db.add(user)
     await db.commit()
     await db.refresh(user)
@@ -89,10 +154,20 @@ async def deactivate_user(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    _ensure_not_self(admin, user_id)
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    if (
+        user.role == Role.admin
+        and user.is_active
+        and await _active_admin_count(db) <= 1
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot deactivate the last active admin",
+        )
     user.is_active = False
     db.add(user)
     await db.commit()

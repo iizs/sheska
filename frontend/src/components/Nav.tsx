@@ -18,6 +18,9 @@ export default function Nav({ role }: { role: string }) {
       <Link href="/sources" className="hover:text-indigo-600">Sources</Link>
       <Link href="/jobs" className="hover:text-indigo-600">Jobs</Link>
       <Link href="/guide" className="hover:text-indigo-600">Guide</Link>
+      {role === "admin" && (
+        <Link href="/admin/users" className="hover:text-indigo-600">Users</Link>
+      )}
       <div className="ml-auto flex items-center gap-4">
         <span className="text-gray-500 text-xs uppercase">{role}</span>
         <button onClick={logout} className="text-gray-500 hover:text-red-500">Logout</button>
