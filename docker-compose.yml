@@ -15,12 +15,11 @@ services:
     restart: unless-stopped
 
   nginx:
-    image: nginx:alpine
+    build: ./nginx
     ports:
       - "80:80"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - wiki-store:/wiki-store:ro
+      - wiki-store:/wiki-store
     depends_on:
       - backend
       - frontend
