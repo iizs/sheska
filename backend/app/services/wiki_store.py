@@ -20,14 +20,24 @@ def _get_repo(wiki_path: Path) -> git.Repo:
     return git.Repo(wiki_path)
 
 
-def parse_llm_pages(llm_output: str) -> dict[str, str]:
-    """Parse LLM output formatted as === FILE: name.md === sections."""
+def parse_llm_pages(llm_output: str, fallback_stem: str = "page") -> dict[str, str]:
+    """Parse LLM output formatted as === FILE: name.md === sections.
+
+    Fallback: if no markers but the output has YAML frontmatter (---...---),
+    treat the entire response as one page named '<fallback_stem>.md'.
+    """
     pages: dict[str, str] = {}
     pattern = re.compile(r"=== FILE: (.+?\.md) ===\n(.*?)(?==== FILE:|$)", re.DOTALL)
     for match in pattern.finditer(llm_output):
         filename = match.group(1).strip()
         content = match.group(2).strip()
         pages[filename] = content
+
+    if not pages:
+        stripped = llm_output.strip()
+        if stripped.startswith("---") and "---" in stripped[3:]:
+            safe_stem = re.sub(r"[^a-zA-Z0-9_-]+", "-", fallback_stem).strip("-").lower() or "page"
+            pages[f"{safe_stem}.md"] = stripped
     return pages
 
 

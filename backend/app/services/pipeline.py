@@ -44,11 +44,16 @@ async def run_ingest(source_path: str, db: AsyncSession, job_id: str = ""):
 
     user_content = f"Source file: {source_filename}\n\n{source_text}"
     llm_output = await call_llm(system_prompt, user_content)
+    logger.info(f"[INGEST] LLM raw output ({len(llm_output)} chars): {llm_output[:500]!r}")
 
-    pages = wiki_store.parse_llm_pages(llm_output)
+    pages = wiki_store.parse_llm_pages(llm_output, fallback_stem=Path(source_filename).stem)
     if not pages:
-        logger.warning(f"LLM returned no parseable pages for {source_filename}")
-        return
+        snippet = llm_output[:200].replace("\n", " ")
+        raise ValueError(
+            f"LLM output produced no parseable pages. "
+            f"Expected '=== FILE: name.md ===' markers or YAML frontmatter. "
+            f"Got: {snippet!r}"
+        )
 
     written = wiki_store.write_pages(wiki_path, pages)
 

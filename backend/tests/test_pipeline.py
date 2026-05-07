@@ -236,6 +236,60 @@ async def test_sc16b_index_updated_after_ingest(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_ingest_fallback_when_no_file_markers(tmp_path):
+    """Ollama 등 모델이 === FILE: === 마커 없이 frontmatter만 출력해도 단일 페이지로 저장"""
+    source_file = tmp_path / "my-doc.txt"
+    source_file.write_text("content")
+    wiki_path = tmp_path / "wiki"
+    wiki_path.mkdir()
+
+    fallback_output = (
+        "---\n"
+        "type: concept\n"
+        "created: 2026-05-07 00:00:00\n"
+        "last_updated: 2026-05-07 00:00:00\n"
+        "tags: []\n"
+        'sources:\n  - "my-doc.txt"\n'
+        "---\n"
+        "# My Doc\n\nLLM did not include FILE markers.\n"
+    )
+
+    with patch("app.services.pipeline.get_settings") as mock_settings, \
+         patch("app.services.pipeline.call_llm", new_callable=AsyncMock, return_value=fallback_output):
+        s = mock_settings.return_value
+        s.wiki_store_path = str(wiki_path)
+        s.prompts_path = str(tmp_path / "prompts")
+        s.source_base_url = ""
+
+        from app.services.pipeline import run_ingest
+        await run_ingest(str(source_file), db=None, job_id="fallback-1")
+
+    assert (wiki_path / "my-doc.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_ingest_raises_when_unparseable(tmp_path):
+    """LLM 출력이 마커도 frontmatter도 없으면 명시적으로 raise → Job FAILED 처리"""
+    source_file = tmp_path / "junk.txt"
+    source_file.write_text("content")
+    wiki_path = tmp_path / "wiki"
+    wiki_path.mkdir()
+
+    junk_output = "Sorry, I cannot help with that request."
+
+    with patch("app.services.pipeline.get_settings") as mock_settings, \
+         patch("app.services.pipeline.call_llm", new_callable=AsyncMock, return_value=junk_output):
+        s = mock_settings.return_value
+        s.wiki_store_path = str(wiki_path)
+        s.prompts_path = str(tmp_path / "prompts")
+        s.source_base_url = ""
+
+        from app.services.pipeline import run_ingest
+        with pytest.raises(ValueError, match="no parseable pages"):
+            await run_ingest(str(source_file), db=None, job_id="junk-1")
+
+
+@pytest.mark.asyncio
 async def test_sc16c_log_contains_job_id_not_edit_text(tmp_path):
     """SC-16-c: log.md에 job_id + 결과만, 요청 전문 없음"""
     wiki_path = tmp_path / "wiki"
