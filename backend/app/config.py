@@ -1,7 +1,17 @@
 from __future__ import annotations
+from pathlib import Path
 from typing import List
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
+for _candidate in (BACKEND_ROOT.parent / ".env", BACKEND_ROOT / ".env"):
+    if _candidate.exists():
+        ENV_FILE = _candidate
+        break
+else:
+    ENV_FILE = BACKEND_ROOT / ".env"
 
 
 class Settings(BaseSettings):
@@ -23,7 +33,7 @@ class Settings(BaseSettings):
     source_base_url: str = ""
 
     class Config:
-        env_file = ".env"
+        env_file = str(ENV_FILE) if ENV_FILE.exists() else ".env"
 
 
 @lru_cache

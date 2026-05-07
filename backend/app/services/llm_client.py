@@ -6,8 +6,12 @@ from ..config import get_settings
 async def call_llm(system_prompt: str, user_content: str) -> str:
     settings = get_settings()
 
+    model = settings.litellm_model
+    if "/" not in model:
+        model = f"{settings.litellm_provider}/{model}"
+
     kwargs: dict = {
-        "model": f"{settings.litellm_provider}/{settings.litellm_model}",
+        "model": model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
