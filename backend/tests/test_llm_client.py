@@ -38,7 +38,10 @@ async def test_anthropic_uses_response_format(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_ollama_uses_format_json_not_response_format(monkeypatch):
+async def test_ollama_skips_json_enforcement_entirely(monkeypatch):
+    """Ollama: LiteLLM provider buggy — neither response_format nor format='json' work.
+    Skip JSON enforcement and rely on prompt + Pydantic + graceful degrade.
+    """
     captured: dict = {}
 
     async def fake_acompletion(**kwargs):
@@ -58,13 +61,13 @@ async def test_ollama_uses_format_json_not_response_format(monkeypatch):
             response_format={"type": "json_object"},
         )
 
-    # Ollama-native format="json" used; response_format dropped to avoid LiteLLM bug
-    assert captured.get("format") == "json"
+    # Both flags must be absent — LiteLLM Ollama treats either as a function call signal
+    assert "format" not in captured
     assert "response_format" not in captured
 
 
 @pytest.mark.asyncio
-async def test_ollama_chat_provider_also_branched():
+async def test_ollama_chat_also_skips_json_enforcement():
     """ollama_chat (LiteLLM v1.x naming) is treated identically to 'ollama'."""
     captured: dict = {}
 
@@ -85,7 +88,7 @@ async def test_ollama_chat_provider_also_branched():
             response_format={"type": "json_object"},
         )
 
-    assert captured.get("format") == "json"
+    assert "format" not in captured
     assert "response_format" not in captured
 
 

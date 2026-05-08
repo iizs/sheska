@@ -45,16 +45,18 @@ async def call_llm(
         "messages": messages,
         "temperature": 0,
     }
-    # JSON 강제: provider별 분기 (ADR-0011 보강 — 옵션 A → Ollama만 B)
-    # LiteLLM Ollama provider는 response_format을 function call로 잘못 해석해
-    # KeyError: 'arguments' 발생하므로 Ollama-native `format="json"` 사용.
+    # JSON 강제 적용 정책 (ADR-0011 운영 결정):
+    # - Anthropic/OpenAI 등: response_format={"type":"json_object"} 그대로 전달
+    # - Ollama: LiteLLM provider 버그 — response_format / format="json" 어느 플래그라도
+    #   응답을 function call 구조로 해석해 KeyError: 'arguments' 발생.
+    #   → JSON 강제 자체를 사용하지 않고 prompt + Pydantic + graceful degrade에만 의존
     if response_format is not None:
         wants_json = (
             isinstance(response_format, dict)
             and response_format.get("type") == "json_object"
         )
         if weak_system_following and wants_json:
-            kwargs["format"] = "json"
+            pass  # Ollama: skip JSON enforcement entirely
         else:
             kwargs["response_format"] = response_format
     if settings.litellm_api_key:
