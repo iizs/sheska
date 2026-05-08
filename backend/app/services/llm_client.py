@@ -1,9 +1,14 @@
 from __future__ import annotations
+from typing import Optional
 import litellm
 from ..config import get_settings
 
 
-async def call_llm(system_prompt: str, user_content: str) -> str:
+async def call_llm(
+    system_prompt: str,
+    user_content: str,
+    response_format: Optional[dict] = None,
+) -> str:
     settings = get_settings()
 
     model = settings.litellm_model
@@ -19,16 +24,14 @@ async def call_llm(system_prompt: str, user_content: str) -> str:
         merged = (
             f"{system_prompt}\n\n"
             f"═══════════════════════════════════════════\n"
-            f"SOURCE INPUT BELOW\n"
+            f"INPUT BELOW\n"
             f"═══════════════════════════════════════════\n\n"
             f"{user_content}\n\n"
             f"═══════════════════════════════════════════\n"
-            f"FINAL REMINDER — YOUR RESPONSE\n"
+            f"FINAL REMINDER\n"
             f"═══════════════════════════════════════════\n"
-            f"Output the wiki page(s) ONLY. The very first characters of your response\n"
-            f"MUST be either '=== FILE: ' (for ingest) or '---' (for edit).\n"
-            f"Do NOT begin with 'This is', 'Here is', a summary, or any commentary.\n"
-            f"If you start with anything other than the required marker, your response is invalid.\n"
+            f"Output ONLY what the system instructed. Do not begin with\n"
+            f"'This is', 'Here is', a summary, or any commentary.\n"
         )
         messages = [{"role": "user", "content": merged}]
     else:
@@ -42,6 +45,8 @@ async def call_llm(system_prompt: str, user_content: str) -> str:
         "messages": messages,
         "temperature": 0,
     }
+    if response_format is not None:
+        kwargs["response_format"] = response_format
     if settings.litellm_api_key:
         kwargs["api_key"] = settings.litellm_api_key
     if settings.litellm_base_url:

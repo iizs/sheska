@@ -285,7 +285,8 @@ async def test_ingest_raises_when_unparseable(tmp_path):
         s.source_base_url = ""
 
         from app.services.pipeline import run_ingest
-        with pytest.raises(ValueError, match="no parseable pages"):
+        # v0.3: error message changed — covers both JSON Plan and legacy fallback failure
+        with pytest.raises(ValueError, match="(neither valid JSON Plan|no parseable pages)"):
             await run_ingest(str(source_file), db=None, job_id="junk-1")
 
 
