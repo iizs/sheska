@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -6,21 +7,33 @@ from httpx import AsyncClient
 from .conftest import get_token
 
 
-MOCK_INGEST_OUTPUT = """=== FILE: product-overview.md ===
----
-type: concept
-created: 2026-05-07 00:00:00
-last_updated: 2026-05-07 00:00:00
-tags: [product]
-sources:
-  - "test.txt"
----
-# Product Overview
-This is a test page about the product.
+_PRODUCT_OVERVIEW_CONTENT = (
+    "---\n"
+    "type: concept\n"
+    "created: 2026-05-07 00:00:00\n"
+    "last_updated: 2026-05-07 00:00:00\n"
+    "tags: [product]\n"
+    "sources:\n"
+    '  - "test.txt"\n'
+    "---\n"
+    "# Product Overview\n"
+    "This is a test page about the product.\n"
+    "\n"
+    "[[related-page]]\n"
+)
 
-[[related-page]]
-"""
+# v0.3 (ADR-0011): Ingest LLM 출력은 JSON Plan 형식
+MOCK_INGEST_OUTPUT = json.dumps({
+    "actions": [
+        {
+            "action": "create",
+            "page_path": "product-overview.md",
+            "content": _PRODUCT_OVERVIEW_CONTENT,
+        }
+    ]
+})
 
+# Edit는 Plan을 사용하지 않음 (단일 페이지 업데이트). 기존 포맷 유지.
 MOCK_EDIT_OUTPUT = """---
 type: concept
 created: 2026-05-07 00:00:00
