@@ -2,7 +2,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import List
-from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
@@ -37,27 +36,24 @@ class Settings(BaseSettings):
     signup_enabled: bool = True
     password_min_length: int = 8
 
-    # CORS — comma-separated string in .env (or JSON list). Wildcard "*" disallowed.
-    allowed_origins: List[str] = ["http://localhost:3000"]
+    # CORS — accept raw string from .env to avoid pydantic_settings auto JSON-decode
+    # of complex types (List). Use `cors_origins` property to get the parsed list.
+    # Format: comma-separated origins, or a JSON-encoded list. Wildcard "*" disallowed in prod.
+    allowed_origins: str = "http://localhost:3000"
 
-    @field_validator("allowed_origins", mode="before")
-    @classmethod
-    def _parse_allowed_origins(cls, v):
-        if v is None or v == "":
+    @property
+    def cors_origins(self) -> List[str]:
+        raw = (self.allowed_origins or "").strip()
+        if not raw:
             return ["http://localhost:3000"]
-        if isinstance(v, list):
-            return v
-        if isinstance(v, str):
-            stripped = v.strip()
-            if stripped.startswith("["):
-                try:
-                    parsed = json.loads(stripped)
-                    if isinstance(parsed, list):
-                        return parsed
-                except json.JSONDecodeError:
-                    pass
-            return [item.strip() for item in stripped.split(",") if item.strip()]
-        return v
+        if raw.startswith("["):
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    return [str(x) for x in parsed]
+            except json.JSONDecodeError:
+                pass
+        return [item.strip() for item in raw.split(",") if item.strip()]
 
     class Config:
         env_file = str(ENV_FILE) if ENV_FILE.exists() else ".env"
