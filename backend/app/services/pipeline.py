@@ -8,7 +8,7 @@ from typing import Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import ValidationError
-from ..config import get_settings
+from ..config import get_settings, resolve_path
 from ..models.job import Job
 from . import wiki_store, index_updater
 from .llm_client import call_llm
@@ -25,11 +25,23 @@ logger = logging.getLogger(__name__)
 
 
 def _load_prompt(name: str) -> str:
+    """Load prompt file. Resolves relative paths from project root or backend root.
+
+    Raises FileNotFoundError if the file is missing — silent empty-string return
+    causes downstream LLM API errors that are hard to diagnose.
+    """
     settings = get_settings()
-    path = Path(settings.prompts_path) / f"{name}.txt"
-    if path.exists():
-        return path.read_text(encoding="utf-8")
-    return ""
+    prompts_dir = resolve_path(settings.prompts_path)
+    path = prompts_dir / f"{name}.txt"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Prompt file not found: {path}. "
+            f"PROMPTS_PATH={settings.prompts_path!r}; resolved={prompts_dir}."
+        )
+    content = path.read_text(encoding="utf-8")
+    if not content.strip():
+        raise ValueError(f"Prompt file is empty: {path}")
+    return content
 
 
 def _parse_source_text(source_path: str) -> str:

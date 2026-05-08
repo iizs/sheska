@@ -15,6 +15,22 @@ else:
     ENV_FILE = BACKEND_ROOT / ".env"
 
 
+def resolve_path(raw: str) -> Path:
+    """Resolve a possibly-relative path against PROJECT_ROOT or BACKEND_ROOT.
+
+    Tries (in order): absolute use → PROJECT_ROOT/raw → BACKEND_ROOT/raw → CWD/raw.
+    First existing path wins; otherwise PROJECT_ROOT/raw is returned (caller decides).
+    """
+    p = Path(raw)
+    if p.is_absolute():
+        return p
+    for base in (PROJECT_ROOT, BACKEND_ROOT, Path.cwd()):
+        candidate = (base / p).resolve()
+        if candidate.exists():
+            return candidate
+    return (PROJECT_ROOT / p).resolve()
+
+
 class Settings(BaseSettings):
     secret_key: str = "change-me-in-production"
     algorithm: str = "HS256"

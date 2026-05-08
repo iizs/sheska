@@ -9,6 +9,18 @@ from app.models.user import User, Role
 from app.services.auth_service import hash_password
 
 
+@pytest.fixture(autouse=True)
+def _seed_prompts(tmp_path):
+    """Auto-create dummy prompt files under tmp_path/prompts so tests that set
+    settings.prompts_path = str(tmp_path / "prompts") work after _load_prompt
+    started raising on missing files (v0.3 hotfix).
+    """
+    prompts = tmp_path / "prompts"
+    prompts.mkdir(exist_ok=True)
+    (prompts / "ingest.txt").write_text("test ingest prompt")
+    (prompts / "edit.txt").write_text("test edit prompt")
+
+
 @pytest_asyncio.fixture
 async def db_session():
     engine = create_async_engine(
