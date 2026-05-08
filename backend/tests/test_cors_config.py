@@ -1,6 +1,4 @@
 from __future__ import annotations
-import textwrap
-from pathlib import Path
 import pytest
 from app.config import Settings
 
@@ -38,36 +36,21 @@ def test_cors_origins_skips_empty_segments():
     assert s.cors_origins == ["http://a.example", "http://b.example"]
 
 
-def test_cors_origins_loads_from_env_file_without_settings_error(tmp_path: Path, monkeypatch):
-    """Regression: pydantic_settings v2 raised SettingsError on List[str] from .env.
+def test_cors_origins_loads_from_environ_without_settings_error(monkeypatch):
+    """Regression: pydantic_settings v2.6 raised SettingsError on List[str] from env.
 
     Storing the field as `str` and parsing via property avoids the auto-JSON decode.
     """
-    env_path = tmp_path / ".env"
-    env_path.write_text(textwrap.dedent("""\
-        ALLOWED_ORIGINS=http://localhost:3000,http://192.168.50.106:3000
-    """))
-
-    # Override env_file path via Settings.Config
-    class _CfgSettings(Settings):
-        class Config:
-            env_file = str(env_path)
-
-    s = _CfgSettings()
+    monkeypatch.setenv("ALLOWED_ORIGINS", "http://localhost:3000,http://192.168.50.106:3000")
+    s = Settings()
     assert s.cors_origins == [
         "http://localhost:3000",
         "http://192.168.50.106:3000",
     ]
 
 
-def test_cors_origins_loads_json_from_env_file(tmp_path: Path):
-    """JSON list form from .env also works."""
-    env_path = tmp_path / ".env"
-    env_path.write_text('ALLOWED_ORIGINS=["http://a.example","http://b.example"]\n')
-
-    class _CfgSettings(Settings):
-        class Config:
-            env_file = str(env_path)
-
-    s = _CfgSettings()
+def test_cors_origins_loads_json_from_environ(monkeypatch):
+    """JSON list form via env var also works (no SettingsError)."""
+    monkeypatch.setenv("ALLOWED_ORIGINS", '["http://a.example","http://b.example"]')
+    s = Settings()
     assert s.cors_origins == ["http://a.example", "http://b.example"]

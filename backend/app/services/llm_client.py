@@ -45,8 +45,18 @@ async def call_llm(
         "messages": messages,
         "temperature": 0,
     }
+    # JSON 강제: provider별 분기 (ADR-0011 보강 — 옵션 A → Ollama만 B)
+    # LiteLLM Ollama provider는 response_format을 function call로 잘못 해석해
+    # KeyError: 'arguments' 발생하므로 Ollama-native `format="json"` 사용.
     if response_format is not None:
-        kwargs["response_format"] = response_format
+        wants_json = (
+            isinstance(response_format, dict)
+            and response_format.get("type") == "json_object"
+        )
+        if weak_system_following and wants_json:
+            kwargs["format"] = "json"
+        else:
+            kwargs["response_format"] = response_format
     if settings.litellm_api_key:
         kwargs["api_key"] = settings.litellm_api_key
     if settings.litellm_base_url:
