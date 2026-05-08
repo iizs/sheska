@@ -1,6 +1,8 @@
 from __future__ import annotations
+import json
 from pathlib import Path
 from typing import List
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
@@ -34,6 +36,28 @@ class Settings(BaseSettings):
 
     signup_enabled: bool = True
     password_min_length: int = 8
+
+    # CORS — comma-separated string in .env (or JSON list). Wildcard "*" disallowed.
+    allowed_origins: List[str] = ["http://localhost:3000"]
+
+    @field_validator("allowed_origins", mode="before")
+    @classmethod
+    def _parse_allowed_origins(cls, v):
+        if v is None or v == "":
+            return ["http://localhost:3000"]
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            stripped = v.strip()
+            if stripped.startswith("["):
+                try:
+                    parsed = json.loads(stripped)
+                    if isinstance(parsed, list):
+                        return parsed
+                except json.JSONDecodeError:
+                    pass
+            return [item.strip() for item in stripped.split(",") if item.strip()]
+        return v
 
     class Config:
         env_file = str(ENV_FILE) if ENV_FILE.exists() else ".env"

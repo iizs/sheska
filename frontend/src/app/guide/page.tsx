@@ -55,7 +55,35 @@ sources:
 # Resolved access URL
 https://sheska.yourcompany.com/api/sources/product_spec.pdf`}</pre>
 
-        <h2>4. Agent Integration Prompt Example</h2>
+        <h2>4. Network / CORS Setup</h2>
+        <p>
+          To access Sheska from another machine on your network (e.g.,{" "}
+          <code>http://192.168.50.106:3000</code>):
+        </p>
+        <ol>
+          <li>
+            Bind <strong>uvicorn to all interfaces</strong>:
+            <pre className="bg-gray-100 rounded p-3 text-sm overflow-x-auto">{`uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`}</pre>
+          </li>
+          <li>
+            Add the <strong>browser-side origin</strong> to <code>ALLOWED_ORIGINS</code> in
+            your <code>.env</code> (comma-separated):
+            <pre className="bg-gray-100 rounded p-3 text-sm overflow-x-auto">{`ALLOWED_ORIGINS=http://localhost:3000,http://192.168.50.106:3000`}</pre>
+          </li>
+          <li>
+            Update the frontend&apos;s <code>NEXT_PUBLIC_API_URL</code> in{" "}
+            <code>frontend/.env.local</code> to the backend&apos;s LAN address:
+            <pre className="bg-gray-100 rounded p-3 text-sm overflow-x-auto">{`NEXT_PUBLIC_API_URL=http://192.168.50.106:8000/api`}</pre>
+          </li>
+          <li>Restart both backend and frontend.</li>
+        </ol>
+        <p>
+          ⚠️ Never use <code>ALLOWED_ORIGINS=*</code> in production — it disables CORS
+          protection and lets any site call your backend with the user&apos;s credentials.
+          Always list the specific origins you trust.
+        </p>
+
+        <h2>5. Agent Integration Prompt Example</h2>
         <p>An example prompt for connecting your locally cloned wiki to an LLM agent.</p>
         <pre className="bg-gray-100 rounded p-3 text-sm overflow-x-auto">{`You are a team wiki assistant.
 The wiki lives at /path/to/wiki-store in Obsidian Markdown format.
