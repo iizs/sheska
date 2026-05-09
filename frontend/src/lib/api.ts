@@ -141,3 +141,11 @@ export async function updateUserActive(userId: number, isActive: boolean) {
 export async function downloadSource(filename: string): Promise<Blob> {
   return request<Blob>(`/sources/${encodeURIComponent(filename)}`);
 }
+
+export async function submitWikiCommand(commandText: string) {
+  return request<{ job_id: string; status: string }>("/wiki/commands", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ command_text: commandText }),
+  });
+}

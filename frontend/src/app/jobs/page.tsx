@@ -94,6 +94,28 @@ export default function JobsPage() {
                       <span className="font-medium">Request:</span> {job.payload.edit_text}
                     </p>
                   )}
+                  {job.payload?.command_text && (
+                    <p className="text-sm mt-1 text-gray-600">
+                      <span className="font-medium">Command:</span> {job.payload.command_text}
+                    </p>
+                  )}
+                  {Array.isArray(job.payload?.plan_summary) && job.payload.plan_summary.length > 0 && (
+                    <details className="mt-2">
+                      <summary className="text-xs text-gray-500 cursor-pointer">
+                        Plan: {job.payload.plan_summary.length} action(s)
+                      </summary>
+                      <ul className="text-xs mt-1 space-y-0.5">
+                        {job.payload.plan_summary.map((s: any, i: number) => (
+                          <li key={i} className="font-mono">
+                            <span className="text-gray-500">{s.outcome}</span>{" "}
+                            <span className="text-gray-700">{s.action}</span>
+                            {s.info?.target && <> → {s.info.target}</>}
+                            {s.info?.page_path && <> → {s.info.page_path}</>}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
                   {job.error_msg && (
                     <p className="text-sm mt-1 text-red-500">
                       <span className="font-medium">Error:</span> {job.error_msg}

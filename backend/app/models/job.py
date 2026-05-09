@@ -10,6 +10,7 @@ import datetime
 class JobType(str, enum.Enum):
     ingest = "INGEST"
     edit = "EDIT"
+    wiki_command = "WIKI_COMMAND"
 
 
 class JobStatus(str, enum.Enum):

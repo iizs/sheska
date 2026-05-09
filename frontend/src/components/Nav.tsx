@@ -15,6 +15,7 @@ export default function Nav({ role }: { role: string }) {
     <nav className="bg-white border-b px-6 py-3 flex items-center gap-6 text-sm font-medium">
       <span className="text-lg font-bold text-indigo-600">Sheska</span>
       <Link href="/wiki" className="hover:text-indigo-600">Wiki</Link>
+      <Link href="/command" className="hover:text-indigo-600">Command</Link>
       <Link href="/sources" className="hover:text-indigo-600">Sources</Link>
       <Link href="/jobs" className="hover:text-indigo-600">Jobs</Link>
       <Link href="/guide" className="hover:text-indigo-600">Guide</Link>

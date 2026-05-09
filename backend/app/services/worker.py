@@ -22,7 +22,7 @@ async def enqueue_job(job_id: str):
 
 
 async def _process_job(job: Job, db: AsyncSession):
-    from .pipeline import run_ingest, run_edit
+    from .pipeline import run_ingest, run_edit, run_wiki_command
     from ..models.job import JobType
 
     try:
@@ -30,6 +30,8 @@ async def _process_job(job: Job, db: AsyncSession):
             await run_ingest(job.payload["source_path"], db, job_id=job.id)
         elif job.type == JobType.edit:
             await run_edit(job.payload["page_path"], job.payload["edit_text"], db, job_id=job.id)
+        elif job.type == JobType.wiki_command:
+            await run_wiki_command(job.payload["command_text"], db, job_id=job.id)
         job.status = JobStatus.done
     except Exception as e:
         logger.error(f"Job {job.id} failed: {e}")

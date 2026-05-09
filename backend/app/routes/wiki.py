@@ -26,6 +26,10 @@ class EditRequest(BaseModel):
     edit_text: str
 
 
+class WikiCommandRequest(BaseModel):
+    command_text: str
+
+
 @router.get("/pages")
 async def list_pages(current_user: User = Depends(get_current_user)):
     pages = wiki_store.list_pages(_wiki_path())
@@ -77,6 +81,29 @@ async def get_index(current_user: User = Depends(get_current_user)):
 async def get_log(current_user: User = Depends(get_current_user)):
     content = wiki_store.read_page(_wiki_path(), "log.md")
     return {"content": content or ""}
+
+
+@router.post("/commands", status_code=202)
+async def submit_wiki_command(
+    body: WikiCommandRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not body.command_text or not body.command_text.strip():
+        raise HTTPException(status_code=422, detail="command_text must not be empty")
+
+    job = Job(
+        id=str(uuid.uuid4()),
+        type=JobType.wiki_command,
+        payload={"command_text": body.command_text.strip()},
+        status=JobStatus.pending,
+        created_by=current_user.id,
+    )
+    db.add(job)
+    await db.commit()
+    await enqueue_job(job.id)
+
+    return {"job_id": job.id, "status": "queued"}
 
 
 @router.get("/zip")

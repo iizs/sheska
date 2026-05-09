@@ -19,6 +19,7 @@ def _seed_prompts(tmp_path):
     prompts.mkdir(exist_ok=True)
     (prompts / "ingest.txt").write_text("test ingest prompt")
     (prompts / "edit.txt").write_text("test edit prompt")
+    (prompts / "wiki_command.txt").write_text("test wiki_command prompt")
 
 
 @pytest_asyncio.fixture

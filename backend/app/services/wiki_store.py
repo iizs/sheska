@@ -130,12 +130,29 @@ def append_log(wiki_path: Path, entry: str):
     log_path.write_text(new_content, encoding="utf-8")
 
 
-def commit_changes(wiki_path: Path, files: list[str], message: str):
+def commit_changes(wiki_path: Path, files: list[str], message: str, removed: list[str] | None = None):
     repo = _get_repo(wiki_path)
     for f in files:
         rel = str(Path(f).as_posix())
         repo.index.add([rel])
+    if removed:
+        for f in removed:
+            rel = str(Path(f).as_posix())
+            try:
+                repo.index.remove([rel], working_tree=True)
+            except Exception:
+                # Already gone from working tree — best effort
+                pass
     repo.index.commit(message)
+
+
+def delete_page(wiki_path: Path, page_path: str) -> bool:
+    """Remove a wiki file from the working tree. Returns True if removed, False if missing."""
+    target = wiki_path / page_path
+    if not target.exists():
+        return False
+    target.unlink()
+    return True
 
 
 def ensure_sheska_yaml(wiki_path: Path, source_base_url: str):

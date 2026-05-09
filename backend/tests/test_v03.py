@@ -177,17 +177,28 @@ async def test_sc43_create_action_executes(tmp_path):
 
 @pytest.mark.asyncio
 async def test_sc43_create_conflict_downgrades_to_skipped_merge(tmp_path):
-    """SC-43: create page_path 충돌 시 자동 merge_into 강등 + log skip"""
+    """SC-43 (Phase A): create 충돌 → skip + log.
+
+    NOTE: v0.3.1 (Phase B, SC-55)에서 정상 merge 실행으로 의미가 바뀜.
+    Phase B 동작은 test_v031.py::test_sc55_create_conflict_phase_b_executes_merge
+    가 검증한다. 이 테스트는 회귀 방지를 위한 Phase B의 행동을 검증하도록 갱신됨.
+    """
     source_file = tmp_path / "spec.txt"
     source_file.write_text("content")
     wiki_path = tmp_path / "wiki"
     wiki_path.mkdir()
     # 미리 같은 이름의 페이지 존재
-    (wiki_path / "intro.md").write_text("---\ntype: concept\n---\n# Old Intro\nold body")
+    (wiki_path / "intro.md").write_text(
+        "---\ntype: concept\ncreated: 2025-01-01\n"
+        "last_updated: 2025-01-01\ntags: []\nsources: []\n---\n# Old Intro\nold body\n"
+    )
 
     output = json.dumps({"actions": [
         {"action": "create", "page_path": "intro.md",
-         "content": "---\ntype: concept\n---\n# New Intro\nnew body"}
+         "content": (
+             "---\ntype: concept\ncreated: 2099-01-01\n"
+             "last_updated: 2099-01-01\ntags: []\nsources: []\n---\n# New Intro\nnew body\n"
+         )},
     ]})
 
     with patch("app.services.pipeline.get_settings") as mock_settings, \
@@ -200,27 +211,36 @@ async def test_sc43_create_conflict_downgrades_to_skipped_merge(tmp_path):
         from app.services.pipeline import run_ingest
         await run_ingest(str(source_file), db=None, job_id="conflict-1")
 
-    # 기존 내용은 보존되어야 함 (Phase A에서는 merge skip)
+    # Phase B: 새 본문이 적용됨 (frontmatter는 기존 created 보존)
     intro = (wiki_path / "intro.md").read_text()
-    assert "old body" in intro
-    assert "new body" not in intro
-
+    assert "new body" in intro
+    assert "old body" not in intro
+    assert "created: 2025-01-01" in intro  # frontmatter preservation
     log = (wiki_path / "log.md").read_text()
-    assert "skipped" in log
-    assert "create-conflict" in log
+    assert "executed: merge_into ← create-conflict → [[intro]]" in log
 
 
 @pytest.mark.asyncio
-async def test_sc44_merge_into_skipped_logged(tmp_path):
+async def test_sc44_merge_into_logged(tmp_path):
+    """v0.3.1 (Phase B, SC-52): merge_into 정상 실행 + log.
+
+    이전 Phase A 동작(skip)은 v0.3.1 도입으로 더 이상 유효하지 않음.
+    """
     source_file = tmp_path / "spec.txt"
     source_file.write_text("content")
     wiki_path = tmp_path / "wiki"
     wiki_path.mkdir()
-    (wiki_path / "existing.md").write_text("---\ntype: concept\n---\n# Existing")
+    (wiki_path / "existing.md").write_text(
+        "---\ntype: concept\ncreated: 2025-01-01\n"
+        "last_updated: 2025-01-01\ntags: []\nsources: []\n---\n# Existing\n"
+    )
 
     output = json.dumps({"actions": [
         {"action": "merge_into", "target": "existing.md",
-         "merged_content": "---\ntype: concept\n---\n# Existing (updated)"}
+         "merged_content": (
+             "---\ntype: concept\ncreated: 2099-01-01\n"
+             "last_updated: 2099-01-01\ntags: []\nsources: []\n---\n# Existing (updated)\n"
+         )}
     ]})
 
     with patch("app.services.pipeline.get_settings") as mock_settings, \
@@ -233,10 +253,10 @@ async def test_sc44_merge_into_skipped_logged(tmp_path):
         from app.services.pipeline import run_ingest
         await run_ingest(str(source_file), db=None, job_id="merge-1")
 
-    # Phase A: 기존 페이지 변경 안 됨
-    assert "(updated)" not in (wiki_path / "existing.md").read_text()
+    # Phase B: 정상 실행
+    assert "(updated)" in (wiki_path / "existing.md").read_text()
     log = (wiki_path / "log.md").read_text()
-    assert "skipped (phase A): merge_into → [[existing]]" in log
+    assert "executed: merge_into → [[existing]]" in log
 
 
 @pytest.mark.asyncio
