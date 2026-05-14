@@ -23,8 +23,28 @@ class ToolContext:
     job_type: str                    # "ingest" | "wiki_command"
     job_id: str
     source_filename: str = ""        # set for ingest
-    written_paths: list[str] = field(default_factory=list)  # accumulated writes (caller manages commits)
+    written_paths: list[str] = field(default_factory=list)  # cumulative across loop
     deleted_paths: list[str] = field(default_factory=list)
+    step_counter: int = 0            # incremented per write/patch/delete commit
+
+
+def _now_str() -> str:
+    import datetime
+    return datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _commit_step(
+    ctx: ToolContext,
+    wiki_path: Path,
+    written: list[str],
+    removed: list[str],
+    tool_name: str,
+    primary_path: str,
+):
+    """Per-write commit (SC-78). One git commit per write/patch/delete tool call."""
+    ctx.step_counter += 1
+    msg = f"[job:{ctx.job_id} step:{ctx.step_counter}] {tool_name}: {primary_path}"
+    wiki_store.commit_changes(wiki_path, written, msg, removed=removed)
 
 
 def _json(payload: Any) -> str:
@@ -127,18 +147,24 @@ async def _exec_write_page(wiki_path: Path, args: dict, ctx: ToolContext) -> str
     if ctx.job_type == "ingest" and ctx.source_filename:
         new_content = force_sources_frontmatter(new_content, ctx.source_filename)
     new_content, type_corrected = coerce_type_field(new_content)
+    new_content = wiki_store.update_last_updated(new_content, _now_str())
 
-    # Read old content to compute backlinks diff
     old = wiki_store.read_page(wiki_path, path)
     (wiki_path / path).parent.mkdir(parents=True, exist_ok=True)
     (wiki_path / path).write_text(new_content, encoding="utf-8")
     backlinks_changed = wiki_store.update_backlinks_for_change(
         wiki_path, path, old, new_content
     )
-    ctx.written_paths.append(path)
+    if path not in ctx.written_paths:
+        ctx.written_paths.append(path)
     for bl in backlinks_changed:
         if bl not in ctx.written_paths:
             ctx.written_paths.append(bl)
+
+    # SC-78: one commit per write tool call
+    step_files = [path] + list(backlinks_changed)
+    _commit_step(ctx, wiki_path, step_files, [], "write_page", path)
+
     return _result_ok(
         path=path,
         existed=old is not None,
@@ -175,14 +201,21 @@ async def _exec_patch_page(wiki_path: Path, args: dict, ctx: ToolContext) -> str
     new_content = result["new_content"]
     from .plan import coerce_type_field
     new_content, type_corrected = coerce_type_field(new_content)
+    new_content = wiki_store.update_last_updated(new_content, _now_str())
     (wiki_path / path).write_text(new_content, encoding="utf-8")
     backlinks_changed = wiki_store.update_backlinks_for_change(
         wiki_path, path, old, new_content
     )
-    ctx.written_paths.append(path)
+    if path not in ctx.written_paths:
+        ctx.written_paths.append(path)
     for bl in backlinks_changed:
         if bl not in ctx.written_paths:
             ctx.written_paths.append(bl)
+
+    # SC-78: one commit per patch tool call
+    step_files = [path] + list(backlinks_changed)
+    _commit_step(ctx, wiki_path, step_files, [], "patch_page", path)
+
     return _result_ok(
         path=path,
         hunks_applied=result["hunks_applied"],
@@ -209,10 +242,15 @@ async def _exec_delete_page(wiki_path: Path, args: dict, ctx: ToolContext) -> st
     backlinks_changed = wiki_store.update_backlinks_for_change(
         wiki_path, path, old, None
     )
-    ctx.deleted_paths.append(path)
+    if path not in ctx.deleted_paths:
+        ctx.deleted_paths.append(path)
     for bl in backlinks_changed:
         if bl not in ctx.written_paths:
             ctx.written_paths.append(bl)
+
+    # SC-78: one commit per delete tool call
+    _commit_step(ctx, wiki_path, list(backlinks_changed), [path], "delete_page", path)
+
     return _result_ok(path=path, reason=reason, backlinks_updated=backlinks_changed)
 
 

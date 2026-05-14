@@ -583,7 +583,8 @@ async def _finalize_commit(
     cancelled: bool = False,
     error: str = "",
 ):
-    """Common post-loop finalization: index.md refresh + log.md + git commit."""
+    """SC-78: per-write commits happen inside each tool executor. This finalization
+    only refreshes index.md + appends log.md and creates a single closing commit."""
     all_pages = wiki_store.list_pages(wiki_path)
     index_content = index_updater.rebuild_index(wiki_path, all_pages)
     (wiki_path / "index.md").write_text(index_content, encoding="utf-8")
@@ -602,12 +603,9 @@ async def _finalize_commit(
     log_entry = log_entry.rstrip()
     wiki_store.append_log(wiki_path, log_entry)
 
-    commit_files = list(set(ctx.written_paths + ["index.md", "log.md"]))
-    commit_msg = (
-        f"{label}: {len(ctx.written_paths)} updated, {len(ctx.deleted_paths)} removed "
-        f"[job:{job_id}]"
-    )
-    wiki_store.commit_changes(wiki_path, commit_files, commit_msg, removed=ctx.deleted_paths)
+    closing_files = ["index.md", "log.md"]
+    closing_msg = f"[job:{job_id} close] {label}: {status_label.lower()}"
+    wiki_store.commit_changes(wiki_path, closing_files, closing_msg)
 
 
 async def _legacy_run_wiki_command(command_text: str, db: AsyncSession, job_id: str = ""):

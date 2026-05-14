@@ -249,6 +249,85 @@ async def test_tool_patch_page_no_hunks_applied_no_commit(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_sc71_patch_page_refreshes_last_updated(tmp_path):
+    """SC-71 hotfix: patch_page sets a fresh last_updated automatically."""
+    from app.services.tools import get_executor, ToolContext
+    from app.services import wiki_store
+    wiki = tmp_path / "wiki"
+    wiki.mkdir()
+    wiki_store._get_repo(wiki)
+    (wiki / "page.md").write_text(
+        "---\ntype: concept\nlast_updated: 2025-01-01 00:00:00\n---\n# Page\nold\n"
+    )
+    ctx = ToolContext(job_type="wiki_command", job_id="lu1")
+    fn = get_executor("patch_page")
+    diff = "@@\n # Page\n-old\n+new\n"
+    await fn(wiki, {"path": "page.md", "diff": diff}, ctx)
+    content = (wiki / "page.md").read_text()
+    assert "2025-01-01 00:00:00" not in content
+    assert "last_updated:" in content
+
+
+@pytest.mark.asyncio
+async def test_sc71_write_page_refreshes_last_updated(tmp_path):
+    """SC-71 hotfix: write_page also sets last_updated."""
+    from app.services.tools import get_executor, ToolContext
+    from app.services import wiki_store
+    wiki = tmp_path / "wiki"
+    wiki.mkdir()
+    wiki_store._get_repo(wiki)
+    ctx = ToolContext(job_type="wiki_command", job_id="lu2")
+    fn = get_executor("write_page")
+    content_in = "---\ntype: concept\nlast_updated: 2025-01-01 00:00:00\n---\n# X\n"
+    await fn(wiki, {"path": "new.md", "content": content_in}, ctx)
+    content_out = (wiki / "new.md").read_text()
+    assert "2025-01-01 00:00:00" not in content_out
+    assert "last_updated:" in content_out
+
+
+@pytest.mark.asyncio
+async def test_sc78_write_tool_commits_per_call(tmp_path):
+    """SC-78: each write tool call produces a separate git commit with required message pattern."""
+    from app.services.tools import get_executor, ToolContext
+    from app.services import wiki_store
+    import git
+
+    wiki = tmp_path / "wiki"
+    wiki.mkdir()
+    repo = wiki_store._get_repo(wiki)
+    initial_commits = sum(1 for _ in repo.iter_commits())
+
+    ctx = ToolContext(job_type="wiki_command", job_id="JOB123")
+    write = get_executor("write_page")
+    patch = get_executor("patch_page")
+    delete = get_executor("delete_page")
+
+    await write(wiki, {
+        "path": "p1.md",
+        "content": "---\ntype: concept\n---\n# P1\nbody\nmore\n",
+    }, ctx)
+    await write(wiki, {
+        "path": "p2.md",
+        "content": "---\ntype: concept\n---\n# P2\nbody\n",
+    }, ctx)
+    diff = "@@\n # P1\n-body\n+UPDATED body\n more\n"
+    await patch(wiki, {"path": "p1.md", "diff": diff}, ctx)
+    await delete(wiki, {"path": "p2.md", "reason": "obsolete"}, ctx)
+
+    commits = list(repo.iter_commits())
+    new_count = len(commits) - initial_commits
+    assert new_count == 4, f"expected 4 commits, got {new_count}"
+
+    messages = [c.message.strip() for c in commits[:4]]
+    assert any("step:1] write_page: p1.md" in m for m in messages)
+    assert any("step:2] write_page: p2.md" in m for m in messages)
+    assert any("step:3] patch_page: p1.md" in m for m in messages)
+    assert any("step:4] delete_page: p2.md" in m for m in messages)
+    for m in messages:
+        assert "job:JOB123" in m
+
+
+@pytest.mark.asyncio
 async def test_tool_get_backlinks(tmp_path):
     from app.services.tools import get_executor, ToolContext
     wiki = tmp_path / "wiki"
