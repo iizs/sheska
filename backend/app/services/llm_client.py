@@ -153,7 +153,7 @@ async def run_agentic_loop(
     async def _call_anthropic():
         return await client.messages.create(
             model=model,
-            max_tokens=4096,
+            max_tokens=settings.llm_max_output_tokens,
             system=system_prompt,
             tools=tools_schemas,
             messages=messages,

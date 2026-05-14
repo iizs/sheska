@@ -83,7 +83,19 @@ https://sheska.yourcompany.com/api/sources/product_spec.pdf`}</pre>
           Always list the specific origins you trust.
         </p>
 
-        <h2>5. Agent Integration Prompt Example</h2>
+        <h2>5. Tuning LLM Output Budget</h2>
+        <p>
+          If wiki commands or ingests frequently fail with <code>stop_reason=max_tokens</code>,
+          raise the per-call output budget via <code>LLM_MAX_OUTPUT_TOKENS</code> in <code>.env</code>:
+        </p>
+        <pre className="bg-gray-100 rounded p-3 text-sm overflow-x-auto">{`LLM_MAX_OUTPUT_TOKENS=16384`}</pre>
+        <p>
+          Default is 8192. Sonnet 4.5 supports up to 64000 (extended beta). If a single page
+          rewrite repeatedly hits the cap, you can also break the task into smaller patches
+          (the agent already prefers <code>patch_page</code> for partial edits).
+        </p>
+
+        <h2>6. Agent Integration Prompt Example</h2>
         <p>An example prompt for connecting your locally cloned wiki to an LLM agent.</p>
         <pre className="bg-gray-100 rounded p-3 text-sm overflow-x-auto">{`You are a team wiki assistant.
 The wiki lives at /path/to/wiki-store in Obsidian Markdown format.

@@ -377,6 +377,41 @@ def _fake_anthropic_response(blocks: list[dict], stop_reason: str = "end_turn"):
 
 
 @pytest.mark.asyncio
+async def test_llm_max_output_tokens_passed_to_anthropic():
+    """LLM_MAX_OUTPUT_TOKENS env value reaches Anthropic SDK as max_tokens."""
+    from app.services import llm_client
+
+    captured: dict = {}
+
+    class _Capture:
+        def __init__(self, **kw): pass
+        class messages:
+            @staticmethod
+            async def create(**kwargs):
+                captured.update(kwargs)
+                return _fake_anthropic_response(
+                    [{"type": "text", "text": "done"}], stop_reason="end_turn"
+                )
+
+    with patch.object(llm_client, "get_settings") as mock_settings, \
+         patch("anthropic.AsyncAnthropic", new=_Capture):
+        s = mock_settings.return_value
+        s.litellm_provider = "anthropic"
+        s.litellm_model = "claude-3-5"
+        s.litellm_api_key = "key"
+        s.agent_max_iterations = 5
+        s.agent_max_tool_calls = 10
+        s.agent_timeout_seconds = 30
+        s.agent_repeat_pattern_threshold = 3
+        s.llm_max_output_tokens = 16384
+        await llm_client.run_agentic_loop(
+            system_prompt="s", user_content="u", tools_schemas=[],
+            tool_executor=lambda *_: None,  # never called
+        )
+    assert captured.get("max_tokens") == 16384
+
+
+@pytest.mark.asyncio
 async def test_sc64_agentic_loop_natural_end(tmp_path):
     """SC-64: agentic loop ends on stop_reason=end_turn with no tool_use."""
     from app.services import llm_client

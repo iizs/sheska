@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     agent_timeout_seconds: int = 300
     agent_repeat_pattern_threshold: int = 3
 
+    # LLM output token budget per call (raise if hitting stop_reason=max_tokens)
+    llm_max_output_tokens: int = 8192
+
     # CORS — accept raw string from .env to avoid pydantic_settings auto JSON-decode
     # of complex types (List). Use `cors_origins` property to get the parsed list.
     # Format: comma-separated origins, or a JSON-encoded list. Wildcard "*" disallowed in prod.
