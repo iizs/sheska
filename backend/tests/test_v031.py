@@ -107,7 +107,7 @@ async def test_sc52_merge_into_executes(tmp_path):
         s.prompts_path = str(tmp_path / "prompts")
         s.source_base_url = ""
 
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         await run_ingest(str(source_file), db=None, job_id="merge-1")
 
     page = (wiki_path / "page.md").read_text()
@@ -147,7 +147,7 @@ async def test_sc53_supersede_executes(tmp_path):
         s.wiki_store_path = str(wiki_path)
         s.prompts_path = str(tmp_path / "prompts")
         s.source_base_url = ""
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         await run_ingest(str(source_file), db=None, job_id="sup-1")
 
     page = (wiki_path / "old.md").read_text()
@@ -178,7 +178,7 @@ async def test_sc54_delete_executes_in_wiki_command(tmp_path):
         s.wiki_store_path = str(wiki_path)
         s.prompts_path = str(tmp_path / "prompts")
         s.source_base_url = ""
-        from app.services.pipeline import run_wiki_command
+        from app.services.pipeline import _legacy_run_wiki_command as run_wiki_command
         await run_wiki_command("delete the obsolete page", db=None, job_id="del-1")
 
     assert not (wiki_path / "doomed.md").exists()
@@ -214,7 +214,7 @@ async def test_sc55_create_conflict_phase_b_executes_merge(tmp_path):
         s.wiki_store_path = str(wiki_path)
         s.prompts_path = str(tmp_path / "prompts")
         s.source_base_url = ""
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         await run_ingest(str(source_file), db=None, job_id="conflict-2")
 
     page = (wiki_path / "page.md").read_text()
@@ -240,7 +240,7 @@ async def test_sc56_delete_reserved_file_rejected(tmp_path):
         s.wiki_store_path = str(wiki_path)
         s.prompts_path = str(tmp_path / "prompts")
         s.source_base_url = ""
-        from app.services.pipeline import run_wiki_command
+        from app.services.pipeline import _legacy_run_wiki_command as run_wiki_command
         await run_wiki_command("delete index", db=None, job_id="reject-1")
 
     # index.md is rebuilt anyway (system file)
@@ -270,7 +270,7 @@ async def test_sc63_delete_in_ingest_rejected(tmp_path):
         s.wiki_store_path = str(wiki_path)
         s.prompts_path = str(tmp_path / "prompts")
         s.source_base_url = ""
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         await run_ingest(str(source_file), db=None, job_id="ingest-del-1")
 
     # victim 페이지는 그대로
@@ -330,7 +330,7 @@ async def test_sc59_empty_plan_succeeds(tmp_path):
         s.wiki_store_path = str(wiki_path)
         s.prompts_path = str(tmp_path / "prompts")
         s.source_base_url = ""
-        from app.services.pipeline import run_wiki_command
+        from app.services.pipeline import _legacy_run_wiki_command as run_wiki_command
         await run_wiki_command("vague request", db=None, job_id="empty-1")
 
     log = (wiki_path / "log.md").read_text()

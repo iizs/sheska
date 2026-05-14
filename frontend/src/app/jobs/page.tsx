@@ -2,14 +2,18 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
-import { listJobs, getMe } from "@/lib/api";
+import { listJobs, getMe, cancelJob } from "@/lib/api";
 
 const STATUS_COLOR: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-800",
-  processing: "bg-blue-100 text-blue-800",
-  done: "bg-green-100 text-green-800",
-  failed: "bg-red-100 text-red-800",
+  Pending: "bg-yellow-100 text-yellow-800",
+  Processing: "bg-blue-100 text-blue-800",
+  Done: "bg-green-100 text-green-800",
+  Failed: "bg-red-100 text-red-800",
+  Cancelling: "bg-orange-100 text-orange-800",
+  Cancelled: "bg-gray-100 text-gray-700",
 };
+
+const RUNNING_STATUSES = new Set(["Pending", "Processing", "Cancelling"]);
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100];
 
@@ -77,6 +81,17 @@ export default function JobsPage() {
                       </div>
                       <p className="text-xs text-gray-400 font-mono">{job.id}</p>
                     </div>
+                    {RUNNING_STATUSES.has(job.status) && (
+                      <button
+                        onClick={async () => {
+                          try { await cancelJob(job.id); await reload(); } catch {}
+                        }}
+                        disabled={job.status === "Cancelling"}
+                        className="text-xs px-2 py-1 border rounded text-red-600 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        {job.status === "Cancelling" ? "Cancelling..." : "Cancel"}
+                      </button>
+                    )}
                   </div>
 
                   {job.payload?.page_path && (
@@ -111,6 +126,24 @@ export default function JobsPage() {
                             <span className="text-gray-700">{s.action}</span>
                             {s.info?.target && <> → {s.info.target}</>}
                             {s.info?.page_path && <> → {s.info.page_path}</>}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                  {Array.isArray(job.payload?.steps) && job.payload.steps.length > 0 && (
+                    <details className="mt-2">
+                      <summary className="text-xs text-gray-500 cursor-pointer">
+                        Steps: {job.payload.steps.length}
+                      </summary>
+                      <ul className="text-xs mt-1 space-y-0.5">
+                        {job.payload.steps.map((s: any, i: number) => (
+                          <li key={i} className="font-mono">
+                            <span className="text-gray-400">#{s.step_no}</span>{" "}
+                            <span className={s.status === "error" ? "text-red-600" : "text-gray-700"}>
+                              {s.tool_name}
+                            </span>{" "}
+                            <span className="text-gray-500">{s.args_snippet}</span>
                           </li>
                         ))}
                       </ul>

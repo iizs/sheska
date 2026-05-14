@@ -149,3 +149,7 @@ export async function submitWikiCommand(commandText: string) {
     body: JSON.stringify({ command_text: commandText }),
   });
 }
+
+export async function cancelJob(jobId: string) {
+  return request<any>(`/jobs/${jobId}/cancel`, { method: "POST" });
+}

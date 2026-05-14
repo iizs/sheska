@@ -82,7 +82,7 @@ async def test_sc11b_ingest_flow_creates_wiki_pages(tmp_path):
         settings.litellm_api_key = ""
         settings.litellm_base_url = ""
 
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         await run_ingest(str(source_file), db=None, job_id="test-job-1")
 
     assert (wiki_path / "product-overview.md").exists()
@@ -104,7 +104,7 @@ async def test_sc12_frontmatter_fields(tmp_path):
         s.wiki_store_path = str(wiki_path)
         s.prompts_path = str(tmp_path / "prompts")
 
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         await run_ingest(str(source_file), db=None, job_id="test-job-2")
 
     content = (wiki_path / "product-overview.md").read_text()
@@ -126,7 +126,7 @@ async def test_sc13_obsidian_link_format(tmp_path):
         s.wiki_store_path = str(wiki_path)
         s.prompts_path = str(tmp_path / "prompts")
 
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         await run_ingest(str(source_file), db=None, job_id="test-job-3")
 
     content = (wiki_path / "product-overview.md").read_text()
@@ -148,7 +148,7 @@ async def test_sc14_sources_frontmatter(tmp_path):
         s.prompts_path = str(tmp_path / "prompts")
         s.source_base_url = "http://localhost:8000/api/sources"
 
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         await run_ingest(str(source_file), db=None, job_id="test-job-4")
 
     content = (wiki_path / "product-overview.md").read_text()
@@ -175,7 +175,7 @@ async def test_sc26_sheska_yaml_created_on_ingest(tmp_path):
         s.prompts_path = str(tmp_path / "prompts")
         s.source_base_url = "http://localhost:8000/api/sources"
 
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         await run_ingest(str(source_file), db=None, job_id="sc26-test")
 
     sheska_yaml = wiki_path / "_sheska.yaml"
@@ -240,7 +240,7 @@ async def test_sc16b_index_updated_after_ingest(tmp_path):
         s.wiki_store_path = str(wiki_path)
         s.prompts_path = str(tmp_path / "prompts")
 
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         await run_ingest(str(source_file), db=None, job_id="idx-test")
 
     index_content = (wiki_path / "index.md").read_text()
@@ -274,7 +274,7 @@ async def test_ingest_fallback_when_no_file_markers(tmp_path):
         s.prompts_path = str(tmp_path / "prompts")
         s.source_base_url = ""
 
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         await run_ingest(str(source_file), db=None, job_id="fallback-1")
 
     assert (wiki_path / "my-doc.md").exists()
@@ -297,7 +297,7 @@ async def test_ingest_raises_when_unparseable(tmp_path):
         s.prompts_path = str(tmp_path / "prompts")
         s.source_base_url = ""
 
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         # v0.3: error message changed — covers both JSON Plan and legacy fallback failure
         with pytest.raises(ValueError, match="(neither valid JSON Plan|no parseable pages)"):
             await run_ingest(str(source_file), db=None, job_id="junk-1")
@@ -390,7 +390,7 @@ async def test_ingest_dangling_dashes_creates_page(tmp_path):
         s.prompts_path = str(tmp_path / "prompts")
         s.source_base_url = ""
 
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         await run_ingest(str(source_file), db=None, job_id="gemma-1")
 
     md_files = list(wiki_path.glob("*.md"))

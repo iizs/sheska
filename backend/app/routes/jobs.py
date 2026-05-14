@@ -64,3 +64,29 @@ async def get_job(
     if current_user.role != Role.admin and job.created_by != current_user.id:
         raise HTTPException(status_code=403, detail="Forbidden")
     return job
+
+
+@router.post("/{job_id}/cancel", response_model=JobResponse)
+async def cancel_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """SC-66: request cancellation of a running job. Sets status=cancelling;
+    the worker transitions to cancelled at the next iteration boundary."""
+    result = await db.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if current_user.role != Role.admin and job.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if job.status in (JobStatus.done, JobStatus.failed, JobStatus.cancelled):
+        # idempotent — already terminal
+        return job
+    if job.status not in (JobStatus.cancelling, JobStatus.processing, JobStatus.pending):
+        raise HTTPException(status_code=409, detail=f"Cannot cancel from status {job.status}")
+    job.status = JobStatus.cancelling
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+    return job

@@ -11,7 +11,13 @@ from pydantic import ValidationError
 from ..config import get_settings, resolve_path
 from ..models.job import Job
 from . import wiki_store, index_updater
-from .llm_client import call_llm
+from .llm_client import (
+    call_llm,
+    run_agentic_loop,
+    is_anthropic_provider,
+    AgenticError,
+    AgenticCancelled,
+)
 from .plan import (
     Plan,
     CreateAction,
@@ -288,6 +294,87 @@ def _resolve_and_execute(
 
 
 async def run_ingest(source_path: str, db: AsyncSession, job_id: str = ""):
+    # SC-74: v0.4 is Anthropic-only. Other providers fail fast.
+    if not is_anthropic_provider():
+        raise ValueError(
+            f"This provider ({get_settings().litellm_provider}) does not support agentic mode (v0.4). "
+            "Use Anthropic, or downgrade to v0.3.1 for legacy multi-provider behavior."
+        )
+    return await _run_agentic_ingest(source_path, db, job_id)
+
+
+async def _run_agentic_ingest(source_path: str, db: AsyncSession, job_id: str = ""):
+    """v0.4 INGEST via agentic loop (ADR-0013/14/15)."""
+    from .tools import ToolContext, list_schemas, get_executor
+
+    settings = get_settings()
+    wiki_path = Path(settings.wiki_store_path)
+    wiki_store._get_repo(wiki_path)
+    wiki_store.ensure_sheska_yaml(wiki_path, settings.source_base_url)
+
+    source_filename = Path(source_path).name
+    system_prompt = _load_prompt("agent_system")
+
+    existing_index = wiki_store.read_page(wiki_path, "index.md") or ""
+    user_content = (
+        "TASK: Ingest a new source document into the wiki.\n\n"
+        f"NEW SOURCE FILE (use read_source to fetch the body): {source_filename}\n\n"
+        f"EXISTING WIKI INDEX:\n{existing_index}\n\n"
+        "Follow the accumulation principle: do not delete pages in INGEST. "
+        "Use get_index/read_page to understand existing structure, then write_page or patch_page "
+        "to create or augment pages."
+    )
+
+    ctx = ToolContext(job_type="ingest", job_id=job_id, source_filename=source_filename)
+
+    async def tool_executor(name: str, tool_input: dict) -> str:
+        executor = get_executor(name)
+        if executor is None:
+            return '{"ok": false, "error": "unknown tool"}'
+        return await executor(wiki_path, tool_input, ctx)
+
+    steps: list[dict] = []
+
+    async def on_step(step: dict):
+        steps.append(step)
+        await _persist_steps(db, job_id, steps)
+
+    async def is_cancelled() -> bool:
+        return await _check_cancellation(db, job_id)
+
+    try:
+        loop_result = await run_agentic_loop(
+            system_prompt=system_prompt,
+            user_content=user_content,
+            tools_schemas=list_schemas(),
+            tool_executor=tool_executor,
+            on_step=on_step,
+            is_cancelled=is_cancelled,
+        )
+    except AgenticCancelled:
+        logger.info(f"[INGEST agentic] cancelled job={job_id}")
+        await _finalize_commit(
+            wiki_path, ctx, job_id, source_filename, steps, cancelled=True
+        )
+        raise
+    except AgenticError as e:
+        logger.warning(f"[INGEST agentic] aborted: {e}")
+        await _finalize_commit(
+            wiki_path, ctx, job_id, source_filename, steps, error=str(e)
+        )
+        raise
+
+    await _finalize_commit(wiki_path, ctx, job_id, source_filename, steps,
+                           final_text=loop_result.get("final_text", ""))
+    logger.info(
+        f"[INGEST agentic] done job={job_id} iters={loop_result['iterations']} "
+        f"tool_calls={loop_result['tool_calls']} written={ctx.written_paths} "
+        f"deleted={ctx.deleted_paths}"
+    )
+
+
+async def _legacy_run_ingest(source_path: str, db: AsyncSession, job_id: str = ""):
+    """v0.3.1 INGEST (Plan-based) — kept for tests / reference. Not reachable in v0.4 runtime."""
     settings = get_settings()
     wiki_path = Path(settings.wiki_store_path)
     wiki_store._get_repo(wiki_path)
@@ -390,7 +477,141 @@ async def run_ingest(source_path: str, db: AsyncSession, job_id: str = ""):
 
 
 async def run_wiki_command(command_text: str, db: AsyncSession, job_id: str = ""):
-    """SC-58: execute a natural-language wiki command via Plan."""
+    if not is_anthropic_provider():
+        raise ValueError(
+            f"This provider ({get_settings().litellm_provider}) does not support agentic mode (v0.4). "
+            "Use Anthropic, or downgrade to v0.3.1 for legacy multi-provider behavior."
+        )
+    return await _run_agentic_wiki_command(command_text, db, job_id)
+
+
+async def _run_agentic_wiki_command(command_text: str, db: AsyncSession, job_id: str = ""):
+    from .tools import ToolContext, list_schemas, get_executor
+
+    settings = get_settings()
+    wiki_path = Path(settings.wiki_store_path)
+    wiki_store._get_repo(wiki_path)
+    wiki_store.ensure_sheska_yaml(wiki_path, settings.source_base_url)
+
+    system_prompt = _load_prompt("agent_system")
+    existing_index = wiki_store.read_page(wiki_path, "index.md") or ""
+    user_content = (
+        "TASK: Execute a wiki command from the user.\n\n"
+        f"USER COMMAND:\n{command_text}\n\n"
+        f"EXISTING WIKI INDEX:\n{existing_index}\n\n"
+        "You may create/edit/delete pages. Use get_index/read_page/search_pages/get_backlinks "
+        "to understand the wiki before making changes."
+    )
+
+    ctx = ToolContext(job_type="wiki_command", job_id=job_id)
+
+    async def tool_executor(name: str, tool_input: dict) -> str:
+        executor = get_executor(name)
+        if executor is None:
+            return '{"ok": false, "error": "unknown tool"}'
+        return await executor(wiki_path, tool_input, ctx)
+
+    steps: list[dict] = []
+
+    async def on_step(step: dict):
+        steps.append(step)
+        await _persist_steps(db, job_id, steps)
+
+    async def is_cancelled() -> bool:
+        return await _check_cancellation(db, job_id)
+
+    try:
+        loop_result = await run_agentic_loop(
+            system_prompt=system_prompt,
+            user_content=user_content,
+            tools_schemas=list_schemas(),
+            tool_executor=tool_executor,
+            on_step=on_step,
+            is_cancelled=is_cancelled,
+        )
+    except AgenticCancelled:
+        logger.info(f"[WIKI_COMMAND agentic] cancelled job={job_id}")
+        await _finalize_commit(wiki_path, ctx, job_id, "wiki_command", steps, cancelled=True)
+        raise
+    except AgenticError as e:
+        logger.warning(f"[WIKI_COMMAND agentic] aborted: {e}")
+        await _finalize_commit(wiki_path, ctx, job_id, "wiki_command", steps, error=str(e))
+        raise
+
+    await _finalize_commit(wiki_path, ctx, job_id, "wiki_command", steps,
+                           final_text=loop_result.get("final_text", ""))
+    logger.info(
+        f"[WIKI_COMMAND agentic] done job={job_id} iters={loop_result['iterations']} "
+        f"tool_calls={loop_result['tool_calls']} written={ctx.written_paths} "
+        f"deleted={ctx.deleted_paths}"
+    )
+
+
+async def _persist_steps(db: Optional[AsyncSession], job_id: str, steps: list[dict]):
+    if db is None or not job_id:
+        return
+    result = await db.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    if job is None:
+        return
+    merged = dict(job.payload or {})
+    merged["steps"] = steps
+    job.payload = merged
+    db.add(job)
+    await db.commit()
+
+
+async def _check_cancellation(db: Optional[AsyncSession], job_id: str) -> bool:
+    if db is None or not job_id:
+        return False
+    from ..models.job import JobStatus
+    result = await db.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    if job is None:
+        return False
+    return job.status == JobStatus.cancelling
+
+
+async def _finalize_commit(
+    wiki_path: Path,
+    ctx,
+    job_id: str,
+    label: str,
+    steps: list[dict],
+    *,
+    final_text: str = "",
+    cancelled: bool = False,
+    error: str = "",
+):
+    """Common post-loop finalization: index.md refresh + log.md + git commit."""
+    all_pages = wiki_store.list_pages(wiki_path)
+    index_content = index_updater.rebuild_index(wiki_path, all_pages)
+    (wiki_path / "index.md").write_text(index_content, encoding="utf-8")
+
+    now = datetime.datetime.utcnow().isoformat() + "Z"
+    status_label = "CANCELLED" if cancelled else ("FAILED" if error else "SUCCESS")
+    log_entry = f"## {now} | {label.upper()} | {status_label} | job_id: {job_id}\n"
+    if ctx.written_paths:
+        log_entry += f"- written: {', '.join(f'[[{Path(p).stem}]]' for p in ctx.written_paths)}\n"
+    if ctx.deleted_paths:
+        log_entry += f"- deleted: {', '.join(f'[[{Path(p).stem}]]' for p in ctx.deleted_paths)}\n"
+    if error:
+        log_entry += f"- error: {error[:200]}\n"
+    if steps:
+        log_entry += f"- steps: {len(steps)}\n"
+    log_entry = log_entry.rstrip()
+    wiki_store.append_log(wiki_path, log_entry)
+
+    commit_files = list(set(ctx.written_paths + ["index.md", "log.md"]))
+    commit_msg = (
+        f"{label}: {len(ctx.written_paths)} updated, {len(ctx.deleted_paths)} removed "
+        f"[job:{job_id}]"
+    )
+    wiki_store.commit_changes(wiki_path, commit_files, commit_msg, removed=ctx.deleted_paths)
+
+
+async def _legacy_run_wiki_command(command_text: str, db: AsyncSession, job_id: str = ""):
+    """v0.3.1 wiki command — kept for reference. Not reachable in v0.4 runtime."""
     settings = get_settings()
     wiki_path = Path(settings.wiki_store_path)
     wiki_store._get_repo(wiki_path)

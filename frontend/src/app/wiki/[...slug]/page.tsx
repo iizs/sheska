@@ -262,6 +262,26 @@ function PropertyValue({
   if (Array.isArray(value)) {
     if (value.length === 0) return <span className="text-gray-400">—</span>;
 
+    // SC-79: backlinks are clickable wikilinks
+    if (keyName === "backlinks") {
+      return (
+        <span className="inline-flex flex-wrap gap-x-2 gap-y-1">
+          {value.map((v, i) => {
+            const stem = String(v);
+            return (
+              <Link
+                key={i}
+                href={`/wiki/${stem}.md`}
+                className="text-indigo-600 hover:underline"
+              >
+                {stem}
+              </Link>
+            );
+          })}
+        </span>
+      );
+    }
+
     // SC-35: sources are clickable (download via fetch+blob)
     if (keyName === "sources") {
       return (

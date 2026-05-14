@@ -114,7 +114,7 @@ async def test_sc41_index_md_injected_into_llm_context(tmp_path):
         s.prompts_path = str(tmp_path / "prompts")
         s.source_base_url = ""
 
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         await run_ingest(str(source_file), db=None, job_id="idx-1")
 
     assert "EXISTING WIKI INDEX" in captured["user"]
@@ -144,7 +144,7 @@ async def test_sc41_empty_wiki_uses_no_pages_marker(tmp_path):
         s.prompts_path = str(tmp_path / "prompts")
         s.source_base_url = ""
 
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         await run_ingest(str(source_file), db=None, job_id="empty-1")
 
     assert "no existing pages" in captured["user"].lower()
@@ -169,7 +169,7 @@ async def test_sc43_create_action_executes(tmp_path):
         s.prompts_path = str(tmp_path / "prompts")
         s.source_base_url = ""
 
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         await run_ingest(str(source_file), db=None, job_id="create-1")
 
     assert (wiki_path / "intro.md").exists()
@@ -208,7 +208,7 @@ async def test_sc43_create_conflict_downgrades_to_skipped_merge(tmp_path):
         s.prompts_path = str(tmp_path / "prompts")
         s.source_base_url = ""
 
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         await run_ingest(str(source_file), db=None, job_id="conflict-1")
 
     # Phase B: 새 본문이 적용됨 (frontmatter는 기존 created 보존)
@@ -250,7 +250,7 @@ async def test_sc44_merge_into_logged(tmp_path):
         s.prompts_path = str(tmp_path / "prompts")
         s.source_base_url = ""
 
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         await run_ingest(str(source_file), db=None, job_id="merge-1")
 
     # Phase B: 정상 실행
@@ -277,7 +277,7 @@ async def test_sc44_invalid_target_logged(tmp_path):
         s.prompts_path = str(tmp_path / "prompts")
         s.source_base_url = ""
 
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         await run_ingest(str(source_file), db=None, job_id="invalid-1")
 
     log = (wiki_path / "log.md").read_text()
@@ -311,7 +311,7 @@ async def test_sc45_graceful_degrade_to_legacy_fallback(tmp_path):
         s.prompts_path = str(tmp_path / "prompts")
         s.source_base_url = ""
 
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         await run_ingest(str(source_file), db=None, job_id="degrade-1")
 
     # 페이지 생성됨
@@ -338,7 +338,7 @@ async def test_sc45_pure_garbage_raises(tmp_path):
         s.prompts_path = str(tmp_path / "prompts")
         s.source_base_url = ""
 
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         with pytest.raises(ValueError, match="neither valid JSON Plan nor parseable legacy"):
             await run_ingest(str(source_file), db=None, job_id="junk-1")
 
@@ -362,7 +362,7 @@ async def test_sc51_type_enum_violation_corrected(tmp_path):
         s.prompts_path = str(tmp_path / "prompts")
         s.source_base_url = ""
 
-        from app.services.pipeline import run_ingest
+        from app.services.pipeline import _legacy_run_ingest as run_ingest
         await run_ingest(str(source_file), db=None, job_id="enum-1")
 
     content = (wiki_path / "page.md").read_text()

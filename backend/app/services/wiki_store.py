@@ -162,3 +162,213 @@ def ensure_sheska_yaml(wiki_path: Path, source_base_url: str):
         repo = _get_repo(wiki_path)
         repo.index.add(["_sheska.yaml"])
         repo.index.commit("Add _sheska.yaml")
+
+
+# =========================================================================
+# v0.4 — Backlink index + patch_page (unified diff)
+# =========================================================================
+
+_WIKILINK_RE = re.compile(r"\[\[([^\[\]]+?)\]\]")
+
+
+def extract_wikilinks(content: str) -> set[str]:
+    """Outgoing wikilinks from page body. Returns set of stems (no .md)."""
+    body = content
+    # strip frontmatter if present
+    fm = re.match(r"^---\n.*?\n---\n?", content, flags=re.DOTALL)
+    if fm:
+        body = content[fm.end():]
+    return {m.group(1).split("|", 1)[0].strip() for m in _WIKILINK_RE.finditer(body)}
+
+
+def _stem(page_path: str) -> str:
+    return Path(page_path).stem
+
+
+def _read_backlinks(yaml_block: str) -> list[str]:
+    from .plan import _yaml_list
+    return _yaml_list(yaml_block, "backlinks")
+
+
+def _write_backlinks(content: str, backlinks: list[str]) -> str:
+    """Set the backlinks list in the frontmatter. Adds the frontmatter block if missing."""
+    from .plan import _split_frontmatter, _set_yaml_list
+    open_block, yaml_block, rest = _split_frontmatter(content)
+    if not open_block:
+        new_yaml = _set_yaml_list("type: reference", "backlinks", backlinks)
+        return f"---\n{new_yaml}\n---\n{content}"
+    new_yaml = _set_yaml_list(yaml_block, "backlinks", backlinks)
+    return open_block + new_yaml + rest
+
+
+def _update_one_page_backlinks(wiki_path: Path, target_stem: str, add_stems: set[str], remove_stems: set[str]) -> bool:
+    """Apply add/remove to the backlinks of `<target_stem>.md`. Returns True if file changed."""
+    target_path = f"{target_stem}.md"
+    content = read_page(wiki_path, target_path)
+    if content is None:
+        return False
+    from .plan import _split_frontmatter
+    _, yaml_block, _ = _split_frontmatter(content)
+    existing = _read_backlinks(yaml_block) if yaml_block else []
+    new = [b for b in existing if b not in remove_stems]
+    for s in add_stems:
+        if s not in new:
+            new.append(s)
+    if new == existing:
+        return False
+    new_content = _write_backlinks(content, new)
+    (wiki_path / target_path).write_text(new_content, encoding="utf-8")
+    return True
+
+
+def update_backlinks_for_change(
+    wiki_path: Path,
+    changed_page: str,
+    old_content: str | None,
+    new_content: str | None,
+) -> list[str]:
+    """Update backlinks for every page whose set of incoming links changed.
+
+    Args:
+      changed_page: filename (e.g. "auth.md") that was written or deleted.
+      old_content: previous content of the changed page, or None if it didn't exist.
+      new_content: new content of the changed page, or None if it was deleted.
+
+    Returns the list of *other* page filenames that were modified.
+    """
+    changed_stem = _stem(changed_page)
+    old_links = extract_wikilinks(old_content) if old_content else set()
+    new_links = extract_wikilinks(new_content) if new_content else set()
+
+    added = new_links - old_links
+    removed = old_links - new_links
+
+    modified: list[str] = []
+    for stem in sorted(added):
+        if _update_one_page_backlinks(wiki_path, stem, {changed_stem}, set()):
+            modified.append(f"{stem}.md")
+    for stem in sorted(removed):
+        if _update_one_page_backlinks(wiki_path, stem, set(), {changed_stem}):
+            modified.append(f"{stem}.md")
+    return modified
+
+
+def update_last_updated(content: str, now_str: str) -> str:
+    """Refresh `last_updated:` in frontmatter (insert minimal frontmatter if absent)."""
+    from .plan import _split_frontmatter, _set_yaml_scalar
+    open_block, yaml_block, rest = _split_frontmatter(content)
+    if not open_block:
+        return f"---\ntype: reference\nlast_updated: {now_str}\n---\n{content}"
+    new_yaml = _set_yaml_scalar(yaml_block, "last_updated", now_str)
+    return open_block + new_yaml + rest
+
+
+# ---- Unified diff patch ----
+
+def apply_unified_diff(content: str, diff_text: str) -> dict:
+    """Apply a unified diff with context-fuzzy matching (line numbers ignored).
+
+    Returns:
+      {
+        "new_content": str | None,
+        "hunks_applied": int,
+        "hunks_failed": [{"idx": int, "reason": str, "context_excerpt": str}],
+        "error": str | None,
+      }
+    """
+    hunks = _split_unified_diff(diff_text)
+    if not hunks:
+        return {"new_content": None, "hunks_applied": 0, "hunks_failed": [],
+                "error": "no hunks parsed from diff"}
+
+    lines = content.splitlines(keepends=False)
+    applied = 0
+    failed: list[dict] = []
+    for idx, hunk in enumerate(hunks):
+        result = _apply_one_hunk(lines, hunk)
+        if result["ok"]:
+            lines = result["lines"]
+            applied += 1
+        else:
+            failed.append({"idx": idx, "reason": result["reason"],
+                           "context_excerpt": "\n".join(hunk["lines"][:6])})
+    if applied == 0:
+        return {"new_content": None, "hunks_applied": 0, "hunks_failed": failed, "error": None}
+    new_content = "\n".join(lines)
+    if content.endswith("\n") and not new_content.endswith("\n"):
+        new_content += "\n"
+    return {"new_content": new_content, "hunks_applied": applied,
+            "hunks_failed": failed, "error": None}
+
+
+def _split_unified_diff(diff_text: str) -> list[dict]:
+    """Return list of hunks. Each hunk: {"lines": [str], }. Ignores @@ markers' line numbers."""
+    hunks: list[dict] = []
+    current: list[str] | None = None
+    for line in diff_text.splitlines():
+        if line.startswith("---") or line.startswith("+++"):
+            continue
+        if line.startswith("@@"):
+            if current is not None:
+                hunks.append({"lines": current})
+            current = []
+            continue
+        if current is None:
+            # No @@ seen yet — start a synthetic hunk
+            current = []
+        # Treat all non-marker lines as content (skip diff header noise)
+        if line and line[0] in " +-\\":
+            if line.startswith("\\"):
+                continue  # "\ No newline at end of file"
+            current.append(line)
+    if current:
+        hunks.append({"lines": current})
+    return hunks
+
+
+def _apply_one_hunk(lines: list[str], hunk: dict) -> dict:
+    """Context-fuzzy match a single hunk against `lines`. Returns {ok, lines, reason}."""
+    hunk_lines = hunk["lines"]
+    # Extract "before" (context + removed) and "after" (context + added)
+    before: list[str] = []
+    after: list[str] = []
+    for h in hunk_lines:
+        if not h:
+            before.append("")
+            after.append("")
+            continue
+        marker, body = h[0], h[1:]
+        if marker == " ":
+            before.append(body)
+            after.append(body)
+        elif marker == "-":
+            before.append(body)
+        elif marker == "+":
+            after.append(body)
+        else:
+            # malformed line — best-effort treat as context
+            before.append(h)
+            after.append(h)
+
+    if not before:
+        # Pure insertion hunk — append at end (rare but possible)
+        return {"ok": True, "lines": lines + after, "reason": ""}
+
+    # Search for the "before" block in `lines`
+    n = len(lines)
+    bl = len(before)
+    for start in range(n - bl + 1):
+        if lines[start:start + bl] == before:
+            return {"ok": True,
+                    "lines": lines[:start] + after + lines[start + bl:],
+                    "reason": ""}
+
+    # Fuzzy: try with leading/trailing whitespace stripped
+    norm_before = [x.strip() for x in before]
+    for start in range(n - bl + 1):
+        if [x.strip() for x in lines[start:start + bl]] == norm_before:
+            return {"ok": True,
+                    "lines": lines[:start] + after + lines[start + bl:],
+                    "reason": ""}
+
+    return {"ok": False, "lines": lines, "reason": "context not found in target"}

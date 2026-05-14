@@ -6,6 +6,7 @@ python-jose[cryptography]==3.3.0
 bcrypt==4.0.1
 python-multipart==0.0.12
 litellm==1.53.5
+anthropic==0.40.0
 gitpython==3.1.43
 pypdf==5.1.0
 python-dotenv==1.0.1

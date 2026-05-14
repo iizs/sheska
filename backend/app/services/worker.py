@@ -23,6 +23,7 @@ async def enqueue_job(job_id: str):
 
 async def _process_job(job: Job, db: AsyncSession):
     from .pipeline import run_ingest, run_edit, run_wiki_command
+    from .llm_client import AgenticCancelled
     from ..models.job import JobType
 
     try:
@@ -33,6 +34,9 @@ async def _process_job(job: Job, db: AsyncSession):
         elif job.type == JobType.wiki_command:
             await run_wiki_command(job.payload["command_text"], db, job_id=job.id)
         job.status = JobStatus.done
+    except AgenticCancelled:
+        logger.info(f"Job {job.id} cancelled by user")
+        job.status = JobStatus.cancelled
     except Exception as e:
         logger.error(f"Job {job.id} failed: {e}")
         job.status = JobStatus.failed

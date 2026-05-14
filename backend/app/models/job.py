@@ -18,6 +18,8 @@ class JobStatus(str, enum.Enum):
     processing = "Processing"
     done = "Done"
     failed = "Failed"
+    cancelling = "Cancelling"
+    cancelled = "Cancelled"
 
 
 class Job(Base):
