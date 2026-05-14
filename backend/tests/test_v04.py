@@ -377,6 +377,68 @@ def _fake_anthropic_response(blocks: list[dict], stop_reason: str = "end_turn"):
 
 
 @pytest.mark.asyncio
+async def test_prompt_caching_applied_to_system_and_tools():
+    """system + tools list arrive with cache_control on the cacheable prefix."""
+    from app.services import llm_client
+
+    captured: dict = {}
+
+    class _Capture:
+        def __init__(self, **kw): pass
+        class messages:
+            @staticmethod
+            async def create(**kwargs):
+                captured.update(kwargs)
+                return _fake_anthropic_response(
+                    [{"type": "text", "text": "done"}], stop_reason="end_turn"
+                )
+
+    tools = [
+        {"name": "alpha", "input_schema": {"type": "object", "properties": {}}},
+        {"name": "beta", "input_schema": {"type": "object", "properties": {}}},
+    ]
+    with patch.object(llm_client, "get_settings") as mock_settings, \
+         patch("anthropic.AsyncAnthropic", new=_Capture):
+        s = mock_settings.return_value
+        s.litellm_provider = "anthropic"
+        s.litellm_model = "claude-sonnet"
+        s.litellm_api_key = "k"
+        s.agent_max_iterations = 3
+        s.agent_max_tool_calls = 5
+        s.agent_timeout_seconds = 30
+        s.agent_repeat_pattern_threshold = 3
+        s.llm_max_output_tokens = 8192
+        await llm_client.run_agentic_loop(
+            system_prompt="system text",
+            user_content="u",
+            tools_schemas=tools,
+            tool_executor=lambda *_: None,
+        )
+
+    sys_arg = captured.get("system")
+    assert isinstance(sys_arg, list)
+    assert sys_arg[0]["text"] == "system text"
+    assert sys_arg[0]["cache_control"] == {"type": "ephemeral"}
+
+    tools_arg = captured.get("tools")
+    assert tools_arg[-1]["name"] == "beta"
+    assert tools_arg[-1]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in tools_arg[0]  # only the last one carries it
+
+
+def test_add_cache_control_helper_does_not_mutate_input():
+    from app.services.llm_client import _add_cache_control_to_last
+    original = [
+        {"name": "a", "input_schema": {}},
+        {"name": "b", "input_schema": {}},
+    ]
+    snapshot = [dict(t) for t in original]
+    result = _add_cache_control_to_last(original)
+    assert original == snapshot  # input unchanged
+    assert result[-1]["cache_control"] == {"type": "ephemeral"}
+
+
+@pytest.mark.asyncio
 async def test_llm_max_output_tokens_passed_to_anthropic():
     """LLM_MAX_OUTPUT_TOKENS env value reaches Anthropic SDK as max_tokens."""
     from app.services import llm_client

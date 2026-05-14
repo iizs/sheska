@@ -150,12 +150,22 @@ async def run_agentic_loop(
         if is_cancelled is not None and await is_cancelled():
             raise AgenticCancelled("cancelled by user")
 
+    # Prompt caching: system + tools are stable across the loop's iterations.
+    # Marking the last block with cache_control lets Anthropic cache the whole
+    # prefix (TPM and token cost both drop substantially after the first call).
+    system_blocks = [{
+        "type": "text",
+        "text": system_prompt,
+        "cache_control": {"type": "ephemeral"},
+    }]
+    cached_tools = _add_cache_control_to_last(tools_schemas)
+
     async def _call_anthropic():
         return await client.messages.create(
             model=model,
             max_tokens=settings.llm_max_output_tokens,
-            system=system_prompt,
-            tools=tools_schemas,
+            system=system_blocks,
+            tools=cached_tools,
             messages=messages,
         )
 
@@ -269,3 +279,12 @@ def _truncate(s: str, n: int = 500) -> str:
 def _iso_now() -> str:
     import datetime
     return datetime.datetime.utcnow().isoformat() + "Z"
+
+
+def _add_cache_control_to_last(tools: list[dict]) -> list[dict]:
+    """Return a copy of the tools list with cache_control on the last entry."""
+    if not tools:
+        return tools
+    out = [dict(t) for t in tools]
+    out[-1] = {**out[-1], "cache_control": {"type": "ephemeral"}}
+    return out
