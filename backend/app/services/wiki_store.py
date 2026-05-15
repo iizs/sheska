@@ -283,6 +283,24 @@ def read_created(content: str) -> Optional[str]:
     return _yaml_field(yaml_block, "created")
 
 
+def replace_wikilink_in_body(content: str, old_stem: str, new_stem: str) -> str:
+    """Replace [[old_stem]] and [[old_stem|alias]] occurrences in the body only.
+
+    Frontmatter (the leading `---...---` block) is left untouched — backlinks
+    field has its own dedicated updater.
+    """
+    fm = re.match(r"^---\n.*?\n---\n?", content, flags=re.DOTALL)
+    head = content[: fm.end()] if fm else ""
+    body = content[len(head):]
+    pattern = re.compile(r"\[\[" + re.escape(old_stem) + r"(\|[^\]\n]*)?\]\]")
+
+    def _sub(m: "re.Match[str]") -> str:
+        alias = m.group(1) or ""
+        return f"[[{new_stem}{alias}]]"
+
+    return head + pattern.sub(_sub, body)
+
+
 # ---- Unified diff patch ----
 
 def apply_unified_diff(content: str, diff_text: str) -> dict:

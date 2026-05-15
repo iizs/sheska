@@ -330,6 +330,122 @@ async def test_write_page_preserves_created_on_overwrite(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_rename_page_rewrites_referring_pages(tmp_path):
+    """rename_page: atomic move + every referrer's [[old]] becomes [[new]]."""
+    from app.services.tools import get_executor, ToolContext
+    from app.services import wiki_store
+    wiki = tmp_path / "wiki"
+    wiki.mkdir()
+    wiki_store._get_repo(wiki)
+    (wiki / "alpha.md").write_text(
+        "---\ntype: concept\ncreated: 2025-01-01\n---\n"
+        "# Alpha\nContent of alpha.\n"
+    )
+    (wiki / "ref-a.md").write_text(
+        "---\ntype: concept\n---\n# Ref A\nLink: [[alpha]] and [[alpha|aliased]].\n"
+    )
+    (wiki / "ref-b.md").write_text(
+        "---\ntype: concept\n---\n# Ref B\nSee also [[alpha]].\n"
+    )
+    # Seed backlinks index so rename_page knows the referrers
+    wiki_store.update_backlinks_for_change(
+        wiki, "ref-a.md", None, (wiki / "ref-a.md").read_text()
+    )
+    wiki_store.update_backlinks_for_change(
+        wiki, "ref-b.md", None, (wiki / "ref-b.md").read_text()
+    )
+
+    ctx = ToolContext(job_type="wiki_command", job_id="rn1")
+    fn = get_executor("rename_page")
+    result = await fn(wiki, {
+        "old_path": "alpha.md", "new_path": "alpha-renamed.md",
+        "reason": "clarify name",
+    }, ctx)
+    payload = json.loads(result)
+    assert payload["ok"] is True
+    assert sorted(payload["referrers_rewritten"]) == ["ref-a.md", "ref-b.md"]
+
+    assert not (wiki / "alpha.md").exists()
+    new_body = (wiki / "alpha-renamed.md").read_text()
+    assert "created: 2025-01-01" in new_body  # preserved
+    assert "last_updated:" in new_body
+    assert "Content of alpha." in new_body
+
+    ref_a = (wiki / "ref-a.md").read_text()
+    assert "[[alpha-renamed]]" in ref_a
+    assert "[[alpha-renamed|aliased]]" in ref_a
+    assert "[[alpha]]" not in ref_a  # all replaced
+    ref_b = (wiki / "ref-b.md").read_text()
+    assert "[[alpha-renamed]]" in ref_b
+
+
+@pytest.mark.asyncio
+async def test_rename_page_new_path_exists_rejected(tmp_path):
+    from app.services.tools import get_executor, ToolContext
+    from app.services import wiki_store
+    wiki = tmp_path / "wiki"
+    wiki.mkdir()
+    wiki_store._get_repo(wiki)
+    (wiki / "a.md").write_text("---\ntype: concept\n---\n# A\n")
+    (wiki / "b.md").write_text("---\ntype: concept\n---\n# B\n")
+    ctx = ToolContext(job_type="wiki_command", job_id="rn2")
+    fn = get_executor("rename_page")
+    result = await fn(wiki, {"old_path": "a.md", "new_path": "b.md"}, ctx)
+    payload = json.loads(result)
+    assert payload["ok"] is False
+    assert "already exists" in payload["error"]
+    # both originals untouched
+    assert (wiki / "a.md").exists() and (wiki / "b.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_rename_page_missing_old_rejected(tmp_path):
+    from app.services.tools import get_executor, ToolContext
+    from app.services import wiki_store
+    wiki = tmp_path / "wiki"
+    wiki.mkdir()
+    wiki_store._get_repo(wiki)
+    ctx = ToolContext(job_type="wiki_command", job_id="rn3")
+    fn = get_executor("rename_page")
+    result = await fn(wiki, {"old_path": "ghost.md", "new_path": "x.md"}, ctx)
+    payload = json.loads(result)
+    assert payload["ok"] is False
+    assert "not found" in payload["error"]
+
+
+@pytest.mark.asyncio
+async def test_rename_page_forbidden_in_ingest(tmp_path):
+    from app.services.tools import get_executor, ToolContext
+    from app.services import wiki_store
+    wiki = tmp_path / "wiki"
+    wiki.mkdir()
+    wiki_store._get_repo(wiki)
+    (wiki / "a.md").write_text("---\ntype: concept\n---\n# A\n")
+    ctx = ToolContext(job_type="ingest", job_id="rn4", source_filename="x.md")
+    fn = get_executor("rename_page")
+    result = await fn(wiki, {"old_path": "a.md", "new_path": "b.md"}, ctx)
+    payload = json.loads(result)
+    assert payload["ok"] is False
+    assert "forbidden in INGEST" in payload["error"]
+    assert (wiki / "a.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_rename_page_reserved_path_rejected(tmp_path):
+    from app.services.tools import get_executor, ToolContext
+    from app.services import wiki_store
+    wiki = tmp_path / "wiki"
+    wiki.mkdir()
+    wiki_store._get_repo(wiki)
+    ctx = ToolContext(job_type="wiki_command", job_id="rn5")
+    fn = get_executor("rename_page")
+    result = await fn(wiki, {"old_path": "page.md", "new_path": "index.md"}, ctx)
+    payload = json.loads(result)
+    assert payload["ok"] is False
+    assert "reserved" in payload["error"]
+
+
+@pytest.mark.asyncio
 async def test_sc78_write_tool_commits_per_call(tmp_path):
     """SC-78: each write tool call produces a separate git commit with required message pattern."""
     from app.services.tools import get_executor, ToolContext

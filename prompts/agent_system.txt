@@ -61,11 +61,19 @@ When the task is an ingest:
 WIKI COMMAND RULES
 ═══════════════════════════════════════════
 
-When the task is a user wiki command (e.g., "split", "merge", "delete"):
+When the task is a user wiki command (e.g., "split", "merge", "delete", "rename"):
 - Identify affected pages from the index/search.
 - Read them before making changes.
-- For renames/merges, `get_backlinks` first; then patch each referring page to update `[[old]]` → `[[new]]` or remove the link.
-- `delete_page` is allowed only here, and only for non-reserved pages (`index.md`/`log.md`/`_sheska.yaml`/`_*` are protected by the system).
+- **Renames/moves: ALWAYS use `rename_page(old_path, new_path)`.** It atomically
+  rewrites `[[old]]` → `[[new]]` in every referring page and migrates the backlinks
+  index. Do NOT manually orchestrate write_page + delete_page + patch_page for a
+  rename — that path will leave dangling references.
+- For merges (combining two pages into one), `get_backlinks` to see who points at
+  the page that will disappear, then patch those referrers, then `patch_page` the
+  target page to absorb the content, then `delete_page` the redundant one.
+- `delete_page` and `rename_page` are allowed only in wiki command (not ingest), and
+  only for non-reserved pages (`index.md`/`log.md`/`_sheska.yaml`/`_*` are protected
+  by the system).
 
 ═══════════════════════════════════════════
 SAFETY

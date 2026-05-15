@@ -263,6 +263,90 @@ async def _exec_delete_page(wiki_path: Path, args: dict, ctx: ToolContext) -> st
     return _result_ok(path=path, reason=reason, backlinks_updated=backlinks_changed)
 
 
+async def _exec_rename_page(wiki_path: Path, args: dict, ctx: ToolContext) -> str:
+    """Atomic page rename: move file + rewrite [[old]] → [[new]] in all referring
+    pages + migrate backlinks index. WIKI_COMMAND only (INGEST forbidden, like delete)."""
+    if ctx.job_type == "ingest":
+        return _result_error("rename_page is forbidden in INGEST (accumulation principle)")
+
+    old_path = args.get("old_path")
+    new_path = args.get("new_path")
+    reason = args.get("reason", "")
+    err = _validate_writable_path(old_path)
+    if err:
+        return _result_error(f"old_path: {err}")
+    err = _validate_writable_path(new_path)
+    if err:
+        return _result_error(f"new_path: {err}")
+    if old_path == new_path:
+        return _result_error("old_path and new_path are identical")
+
+    old_content = wiki_store.read_page(wiki_path, old_path)
+    if old_content is None:
+        return _result_error(f"old_path not found: {old_path}")
+    if wiki_store.read_page(wiki_path, new_path) is not None:
+        return _result_error(
+            f"new_path already exists: {new_path}; "
+            "use patch_page/merge to combine pages, not rename_page"
+        )
+
+    old_stem = Path(old_path).stem
+    new_stem = Path(new_path).stem
+
+    # 1) Identify referring pages from old's backlinks frontmatter
+    from .plan import _split_frontmatter, _yaml_list
+    _, old_yaml, _ = _split_frontmatter(old_content)
+    referrers = _yaml_list(old_yaml, "backlinks") if old_yaml else []
+
+    rewritten_pages: list[str] = []
+    for ref_stem in referrers:
+        ref_path = f"{ref_stem}.md"
+        ref_content = wiki_store.read_page(wiki_path, ref_path)
+        if ref_content is None:
+            continue
+        new_ref_content = wiki_store.replace_wikilink_in_body(ref_content, old_stem, new_stem)
+        if new_ref_content != ref_content:
+            (wiki_path / ref_path).write_text(new_ref_content, encoding="utf-8")
+            rewritten_pages.append(ref_path)
+            # Refresh outgoing-link diff so backlinks indexes on linked pages also rotate
+            wiki_store.update_backlinks_for_change(
+                wiki_path, ref_path, ref_content, new_ref_content
+            )
+
+    # 2) Write new file with preserved created + refreshed last_updated
+    now = _now_str()
+    new_content = old_content
+    existing_created = wiki_store.read_created(old_content)
+    if existing_created:
+        new_content = wiki_store.force_created(new_content, existing_created)
+    new_content = wiki_store.update_last_updated(new_content, now)
+    (wiki_path / new_path).write_text(new_content, encoding="utf-8")
+
+    # 3) Delete old
+    wiki_store.delete_page(wiki_path, old_path)
+
+    # 4) Backlinks index: pages that old's body linked to now have new_stem instead
+    wiki_store.update_backlinks_for_change(wiki_path, old_path, old_content, None)
+    wiki_store.update_backlinks_for_change(wiki_path, new_path, None, new_content)
+
+    # Track changes for ctx + commit
+    ctx.written_paths.append(new_path)
+    for r in rewritten_pages:
+        if r not in ctx.written_paths:
+            ctx.written_paths.append(r)
+    ctx.deleted_paths.append(old_path)
+
+    step_files = [new_path] + rewritten_pages
+    _commit_step(ctx, wiki_path, step_files, [old_path], "rename_page", f"{old_path} → {new_path}")
+
+    return _result_ok(
+        old_path=old_path,
+        new_path=new_path,
+        reason=reason,
+        referrers_rewritten=rewritten_pages,
+    )
+
+
 async def _exec_get_backlinks(wiki_path: Path, args: dict, ctx: ToolContext) -> str:
     page = args.get("page")
     if not isinstance(page, str) or not page:
@@ -360,6 +444,24 @@ _TOOL_SCHEMAS = {
             "required": ["page"],
         },
     },
+    "rename_page": {
+        "name": "rename_page",
+        "description": (
+            "Atomically rename/move a wiki page: writes the body to new_path, "
+            "rewrites [[old]] → [[new]] in every referring page, migrates the backlinks "
+            "index, and deletes old_path. Forbidden in INGEST. Fails if new_path already exists. "
+            "Use this instead of orchestrating write_page + delete_page + patch_page yourself."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "old_path": {"type": "string"},
+                "new_path": {"type": "string"},
+                "reason": {"type": "string"},
+            },
+            "required": ["old_path", "new_path"],
+        },
+    },
 }
 
 
@@ -372,6 +474,7 @@ _EXECUTORS: dict[str, Callable[[Path, dict, ToolContext], Awaitable[str]]] = {
     "patch_page": _exec_patch_page,
     "delete_page": _exec_delete_page,
     "get_backlinks": _exec_get_backlinks,
+    "rename_page": _exec_rename_page,
 }
 
 
