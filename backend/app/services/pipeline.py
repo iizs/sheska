@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional, Tuple, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm.attributes import flag_modified
 from pydantic import ValidationError
 from ..config import get_settings, resolve_path
 from ..models.job import Job
@@ -135,6 +136,7 @@ async def _persist_plan_payload(db: Optional[AsyncSession], job_id: str, payload
     merged = dict(job.payload or {})
     merged.update(payload_extra)
     job.payload = merged
+    flag_modified(job, "payload")
     db.add(job)
     await db.commit()
 
@@ -554,9 +556,13 @@ async def _persist_steps(db: Optional[AsyncSession], job_id: str, steps: list[di
     job = result.scalar_one_or_none()
     if job is None:
         return
+    # SQLAlchemy doesn't auto-detect mutation of JSON column dicts; build a
+    # detached deep-copied dict + steps list + flag_modified to guarantee every
+    # checkpoint reaches the DB (SC-67 — previously only first step persisted).
     merged = dict(job.payload or {})
-    merged["steps"] = steps
+    merged["steps"] = [dict(s) for s in steps]
     job.payload = merged
+    flag_modified(job, "payload")
     db.add(job)
     await db.commit()
 

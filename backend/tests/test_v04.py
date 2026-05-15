@@ -377,6 +377,46 @@ def _fake_anthropic_response(blocks: list[dict], stop_reason: str = "end_turn"):
 
 
 @pytest.mark.asyncio
+async def test_sc67_persist_steps_writes_all_steps_to_db(db_session):
+    """Regression: SC-67 was only persisting the first step. _persist_steps must
+    survive repeated calls and end up with the full list in Job.payload.steps."""
+    from app.models.job import Job, JobType, JobStatus
+    from app.services.pipeline import _persist_steps
+    import uuid
+
+    job_id = str(uuid.uuid4())
+    job = Job(
+        id=job_id, type=JobType.ingest,
+        payload={"source_path": "x.md"},
+        status=JobStatus.processing, created_by=1,
+    )
+    db_session.add(job)
+    await db_session.commit()
+
+    accumulated: list[dict] = []
+    for n in range(5):
+        accumulated.append({
+            "step_no": n + 1,
+            "tool_name": "write_page" if n else "read_source",
+            "args_snippet": f"args-{n}",
+            "result_snippet": f"result-{n}",
+            "ts": "2026-05-15T00:00:00Z",
+            "status": "ok",
+        })
+        await _persist_steps(db_session, job_id, accumulated)
+
+    # Reload from DB (different attribute access; identity-map returns same object)
+    refreshed = await db_session.get(Job, job_id)
+    assert refreshed is not None
+    assert isinstance(refreshed.payload, dict)
+    steps = refreshed.payload.get("steps", [])
+    assert len(steps) == 5
+    assert [s["step_no"] for s in steps] == [1, 2, 3, 4, 5]
+    assert steps[0]["tool_name"] == "read_source"
+    assert steps[-1]["args_snippet"] == "args-4"
+
+
+@pytest.mark.asyncio
 async def test_usage_logged_after_each_call(caplog):
     """Every Anthropic round-trip emits a usage log line (SC-65 observability)."""
     from app.services import llm_client
