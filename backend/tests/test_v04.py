@@ -4,7 +4,7 @@ import json
 import pytest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch, Mock
 from httpx import AsyncClient
 
 from .conftest import get_token
@@ -374,6 +374,130 @@ def _fake_anthropic_response(blocks: list[dict], stop_reason: str = "end_turn"):
         content=[_Block(b) for b in blocks],
         stop_reason=stop_reason,
     )
+
+
+@pytest.mark.asyncio
+async def test_usage_logged_after_each_call(caplog):
+    """Every Anthropic round-trip emits a usage log line (SC-65 observability)."""
+    from app.services import llm_client
+    import logging as _logging
+
+    class _Once:
+        def __init__(self, **kw): pass
+        class messages:
+            @staticmethod
+            async def create(**kwargs):
+                resp = _fake_anthropic_response(
+                    [{"type": "text", "text": "done"}], stop_reason="end_turn"
+                )
+                resp.usage = SimpleNamespace(
+                    input_tokens=42, output_tokens=7,
+                    cache_creation_input_tokens=10, cache_read_input_tokens=200,
+                )
+                return resp
+
+    with patch.object(llm_client, "get_settings") as mock_settings, \
+         patch("anthropic.AsyncAnthropic", new=_Once):
+        s = mock_settings.return_value
+        s.litellm_provider = "anthropic"
+        s.litellm_model = "claude-sonnet"
+        s.litellm_api_key = "k"
+        s.agent_max_iterations = 3
+        s.agent_max_tool_calls = 5
+        s.agent_timeout_seconds = 30
+        s.agent_repeat_pattern_threshold = 3
+        s.llm_max_output_tokens = 8192
+        caplog.set_level(_logging.INFO, logger="app.services.llm_client")
+        await llm_client.run_agentic_loop(
+            system_prompt="s", user_content="u", tools_schemas=[],
+            tool_executor=lambda *_: None,
+        )
+    assert any(
+        "input=42" in r.message and "cache_read=200" in r.message
+        for r in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_app_level_retry_succeeds():
+    """If RateLimitError surfaces past SDK retries, the loop sleeps and retries once."""
+    import anthropic
+    from app.services import llm_client
+
+    state = {"calls": 0}
+
+    class _RateLimited:
+        def __init__(self, **kw): pass
+        class messages:
+            @staticmethod
+            async def create(**kwargs):
+                state["calls"] += 1
+                if state["calls"] == 1:
+                    fake_resp = Mock()
+                    fake_resp.headers = {"retry-after": "0"}
+                    raise anthropic.RateLimitError(
+                        message="rl", response=fake_resp, body=None,
+                    )
+                return _fake_anthropic_response(
+                    [{"type": "text", "text": "ok"}], stop_reason="end_turn"
+                )
+
+    # Patch _sleep_cancellable so the test doesn't actually sleep
+    async def _no_sleep(*a, **kw): pass
+
+    with patch.object(llm_client, "get_settings") as mock_settings, \
+         patch("anthropic.AsyncAnthropic", new=_RateLimited), \
+         patch.object(llm_client, "_sleep_cancellable", new=_no_sleep):
+        s = mock_settings.return_value
+        s.litellm_provider = "anthropic"
+        s.litellm_model = "claude-sonnet"
+        s.litellm_api_key = "k"
+        s.agent_max_iterations = 3
+        s.agent_max_tool_calls = 5
+        s.agent_timeout_seconds = 30
+        s.agent_repeat_pattern_threshold = 3
+        s.llm_max_output_tokens = 8192
+        result = await llm_client.run_agentic_loop(
+            system_prompt="s", user_content="u", tools_schemas=[],
+            tool_executor=lambda *_: None,
+        )
+    assert result["stop_reason"] == "end_turn"
+    assert state["calls"] == 2
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_after_retry_raises_agentic_error():
+    import anthropic
+    from app.services import llm_client
+
+    class _AlwaysRL:
+        def __init__(self, **kw): pass
+        class messages:
+            @staticmethod
+            async def create(**kwargs):
+                fake_resp = Mock()
+                fake_resp.headers = {"retry-after": "0"}
+                raise anthropic.RateLimitError(message="rl", response=fake_resp, body=None)
+
+    async def _no_sleep(*a, **kw): pass
+
+    with patch.object(llm_client, "get_settings") as mock_settings, \
+         patch("anthropic.AsyncAnthropic", new=_AlwaysRL), \
+         patch.object(llm_client, "_sleep_cancellable", new=_no_sleep):
+        s = mock_settings.return_value
+        s.litellm_provider = "anthropic"
+        s.litellm_model = "claude-sonnet"
+        s.litellm_api_key = "k"
+        s.agent_max_iterations = 3
+        s.agent_max_tool_calls = 5
+        s.agent_timeout_seconds = 30
+        s.agent_repeat_pattern_threshold = 3
+        s.llm_max_output_tokens = 8192
+        with pytest.raises(llm_client.AgenticError, match="rate limit exhausted"):
+            await llm_client.run_agentic_loop(
+                system_prompt="s", user_content="u", tools_schemas=[],
+                tool_executor=lambda *_: None,
+            )
 
 
 @pytest.mark.asyncio

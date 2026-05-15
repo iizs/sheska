@@ -136,7 +136,8 @@ async def run_agentic_loop(
     if model.startswith("anthropic/"):
         model = model.split("/", 1)[1]
 
-    client = anthropic.AsyncAnthropic(api_key=api_key)
+    # SDK-level retry on transient failures (429, 5xx) — defaults to 2 retries, raise to 5.
+    client = anthropic.AsyncAnthropic(api_key=api_key, max_retries=5)
 
     messages: list[dict] = [{"role": "user", "content": user_content}]
     iterations = 0
@@ -183,6 +184,22 @@ async def run_agentic_loop(
             response = await asyncio.wait_for(_call_anthropic(), timeout=remaining)
         except asyncio.TimeoutError:
             raise AgenticError(f"timeout exceeded ({settings.agent_timeout_seconds}s)")
+        except anthropic.RateLimitError as e:
+            # SDK already retried (max_retries=5). Try once more at the app level
+            # with a long sleep that respects Retry-After if available.
+            sleep_s = _retry_after_seconds(e) or 30
+            logger.warning(
+                f"[agentic] rate-limited after SDK retries; sleeping {sleep_s}s before one app-level retry"
+            )
+            await _sleep_cancellable(sleep_s, is_cancelled)
+            await _maybe_cancel()
+            try:
+                remaining = max(1.0, deadline - asyncio.get_event_loop().time())
+                response = await asyncio.wait_for(_call_anthropic(), timeout=remaining)
+            except anthropic.RateLimitError:
+                raise AgenticError("rate limit exhausted after retries")
+
+        _log_usage(response)
 
         iterations += 1
         stop_reason = response.stop_reason or "unknown"
@@ -279,6 +296,43 @@ def _truncate(s: str, n: int = 500) -> str:
 def _iso_now() -> str:
     import datetime
     return datetime.datetime.utcnow().isoformat() + "Z"
+
+
+def _log_usage(response) -> None:
+    """Emit a single-line usage log for every LLM round-trip (input/output/cache hits)."""
+    u = getattr(response, "usage", None)
+    if u is None:
+        return
+    logger.info(
+        "[agentic] usage input=%s output=%s cache_create=%s cache_read=%s",
+        getattr(u, "input_tokens", "?"),
+        getattr(u, "output_tokens", "?"),
+        getattr(u, "cache_creation_input_tokens", 0),
+        getattr(u, "cache_read_input_tokens", 0),
+    )
+
+
+def _retry_after_seconds(err) -> Optional[int]:
+    """Best-effort Retry-After parse from RateLimitError. Returns None if unknown."""
+    resp = getattr(err, "response", None)
+    if resp is None:
+        return None
+    try:
+        headers = getattr(resp, "headers", None) or {}
+        ra = headers.get("retry-after") or headers.get("Retry-After")
+        if ra is None:
+            return None
+        return int(float(ra)) + 1  # +1s safety margin
+    except (ValueError, TypeError):
+        return None
+
+
+async def _sleep_cancellable(seconds: int, is_cancelled):
+    """Sleep in 1-second chunks; abort early on user cancel."""
+    for _ in range(max(1, int(seconds))):
+        if is_cancelled is not None and await is_cancelled():
+            raise AgenticCancelled("cancelled by user during rate-limit backoff")
+        await asyncio.sleep(1)
 
 
 def _add_cache_control_to_last(tools: list[dict]) -> list[dict]:
