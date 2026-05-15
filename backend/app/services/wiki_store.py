@@ -2,6 +2,7 @@ from __future__ import annotations
 import re
 import datetime
 from pathlib import Path
+from typing import Optional
 import git
 from ..config import get_settings
 
@@ -261,6 +262,25 @@ def update_last_updated(content: str, now_str: str) -> str:
         return f"---\ntype: reference\nlast_updated: {now_str}\n---\n{content}"
     new_yaml = _set_yaml_scalar(yaml_block, "last_updated", now_str)
     return open_block + new_yaml + rest
+
+
+def force_created(content: str, created_str: str) -> str:
+    """Set `created:` in frontmatter (insert minimal frontmatter if absent)."""
+    from .plan import _split_frontmatter, _set_yaml_scalar
+    open_block, yaml_block, rest = _split_frontmatter(content)
+    if not open_block:
+        return f"---\ntype: reference\ncreated: {created_str}\n---\n{content}"
+    new_yaml = _set_yaml_scalar(yaml_block, "created", created_str)
+    return open_block + new_yaml + rest
+
+
+def read_created(content: str) -> Optional[str]:
+    """Return the `created:` value from frontmatter, or None if absent."""
+    from .plan import _split_frontmatter, _yaml_field
+    _, yaml_block, _ = _split_frontmatter(content)
+    if not yaml_block:
+        return None
+    return _yaml_field(yaml_block, "created")
 
 
 # ---- Unified diff patch ----

@@ -286,6 +286,50 @@ async def test_sc71_write_page_refreshes_last_updated(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_write_page_forces_created_for_new_page(tmp_path):
+    """SC-67 follow-up: LLM-supplied `created` is overwritten with now for new pages."""
+    from app.services.tools import get_executor, ToolContext
+    from app.services import wiki_store
+    wiki = tmp_path / "wiki"
+    wiki.mkdir()
+    wiki_store._get_repo(wiki)
+    ctx = ToolContext(job_type="wiki_command", job_id="cr1")
+    fn = get_executor("write_page")
+    bogus = "---\ntype: concept\ncreated: 1999-01-01 00:00:00\n---\n# X\nbody\n"
+    await fn(wiki, {"path": "new.md", "content": bogus}, ctx)
+    content = (wiki / "new.md").read_text()
+    assert "1999-01-01" not in content
+    # `created` exists and is a current year-prefixed timestamp
+    assert "created:" in content
+    import re as _re
+    m = _re.search(r"^created:\s+(\d{4}-\d{2}-\d{2})", content, _re.MULTILINE)
+    assert m is not None
+    assert m.group(1).startswith("20")  # year 2000s
+
+
+@pytest.mark.asyncio
+async def test_write_page_preserves_created_on_overwrite(tmp_path):
+    """SC-67 follow-up: overwriting an existing page keeps its original `created`."""
+    from app.services.tools import get_executor, ToolContext
+    from app.services import wiki_store
+    wiki = tmp_path / "wiki"
+    wiki.mkdir()
+    wiki_store._get_repo(wiki)
+    (wiki / "page.md").write_text(
+        "---\ntype: concept\ncreated: 2025-03-14 12:34:56\n---\n# Page\nold\n"
+    )
+    ctx = ToolContext(job_type="wiki_command", job_id="cr2")
+    fn = get_executor("write_page")
+    # LLM tries to set a different created — must be ignored
+    new = "---\ntype: concept\ncreated: 2099-12-31 00:00:00\n---\n# Page\nfresh\n"
+    await fn(wiki, {"path": "page.md", "content": new}, ctx)
+    content = (wiki / "page.md").read_text()
+    assert "2025-03-14 12:34:56" in content
+    assert "2099-12-31" not in content
+    assert "fresh" in content
+
+
+@pytest.mark.asyncio
 async def test_sc78_write_tool_commits_per_call(tmp_path):
     """SC-78: each write tool call produces a separate git commit with required message pattern."""
     from app.services.tools import get_executor, ToolContext

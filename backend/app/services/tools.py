@@ -147,9 +147,18 @@ async def _exec_write_page(wiki_path: Path, args: dict, ctx: ToolContext) -> str
     if ctx.job_type == "ingest" and ctx.source_filename:
         new_content = force_sources_frontmatter(new_content, ctx.source_filename)
     new_content, type_corrected = coerce_type_field(new_content)
-    new_content = wiki_store.update_last_updated(new_content, _now_str())
+    now = _now_str()
+    new_content = wiki_store.update_last_updated(new_content, now)
 
     old = wiki_store.read_page(wiki_path, path)
+    # SC-67 follow-up: enforce `created` — LLM tends to hallucinate the value.
+    # New page → created = now. Overwrite of existing → preserve original created.
+    if old is None:
+        new_content = wiki_store.force_created(new_content, now)
+    else:
+        existing_created = wiki_store.read_created(old)
+        if existing_created:
+            new_content = wiki_store.force_created(new_content, existing_created)
     (wiki_path / path).parent.mkdir(parents=True, exist_ok=True)
     (wiki_path / path).write_text(new_content, encoding="utf-8")
     backlinks_changed = wiki_store.update_backlinks_for_change(
