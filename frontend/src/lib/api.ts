@@ -153,3 +153,81 @@ export async function submitWikiCommand(commandText: string) {
 export async function cancelJob(jobId: string) {
   return request<any>(`/jobs/${jobId}/cancel`, { method: "POST" });
 }
+
+export const LINT_CATEGORIES = [
+  "user_reported",
+  "dangling_link",
+  "orphan_page",
+  "frontmatter_missing",
+  "stale",
+  "duplicate",
+  "quality_low",
+  "split_candidate",
+  "merge_candidate",
+  "tag_inconsistency",
+  "other",
+] as const;
+
+export type LintCategory = (typeof LINT_CATEGORIES)[number];
+export type LintStatus = "open" | "acknowledged" | "wont_fix";
+export type LintSource = "lint:tier1" | "lint:tier2" | "user:web" | "agent:explorer";
+
+export interface LintFinding {
+  finding_id: string;
+  category: LintCategory;
+  source: LintSource;
+  status: LintStatus;
+  page_path: string | null;
+  description: string;
+  details: Record<string, any> | null;
+  created_at: string;
+  reported_by: string;
+  decided_by: string | null;
+  decided_at: string | null;
+  resolution_reason: string | null;
+}
+
+export async function listLintFindings(params: {
+  status?: LintStatus;
+  category?: LintCategory;
+  source?: LintSource;
+  page?: number;
+  size?: number;
+} = {}) {
+  const q = new URLSearchParams();
+  if (params.status) q.set("status", params.status);
+  if (params.category) q.set("category", params.category);
+  if (params.source) q.set("source", params.source);
+  q.set("page", String(params.page ?? 1));
+  q.set("size", String(params.size ?? 20));
+  return request<{
+    items: LintFinding[];
+    total: number;
+    page: number;
+    size: number;
+  }>(`/lint/findings?${q.toString()}`);
+}
+
+export async function createLintFinding(body: {
+  page_path?: string | null;
+  description: string;
+  category?: LintCategory;
+}) {
+  return request<LintFinding>("/lint/findings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function decideLintFinding(
+  findingId: string,
+  status: "acknowledged" | "wont_fix",
+  resolutionReason: string,
+) {
+  return request<LintFinding>(`/lint/findings/${findingId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status, resolution_reason: resolutionReason }),
+  });
+}

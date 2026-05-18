@@ -18,6 +18,7 @@ export default function Nav({ role }: { role: string }) {
       <Link href="/command" className="hover:text-indigo-600">Command</Link>
       <Link href="/sources" className="hover:text-indigo-600">Sources</Link>
       <Link href="/jobs" className="hover:text-indigo-600">Jobs</Link>
+      <Link href="/lint" className="hover:text-indigo-600">Lint</Link>
       <Link href="/guide" className="hover:text-indigo-600">Guide</Link>
       {role === "admin" && (
         <Link href="/admin/users" className="hover:text-indigo-600">Users</Link>

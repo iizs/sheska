@@ -6,7 +6,10 @@ import ReactMarkdown from "react-markdown";
 import wikiLinkPlugin from "remark-wiki-link";
 import yaml from "js-yaml";
 import Nav from "@/components/Nav";
-import { getPage, getMe, requestEdit, downloadSource, listPages } from "@/lib/api";
+import {
+  getPage, getMe, requestEdit, downloadSource, listPages,
+  createLintFinding, LINT_CATEGORIES, LintCategory,
+} from "@/lib/api";
 
 const PROPERTIES_STORAGE_KEY = "sheska_props_collapsed";
 
@@ -44,6 +47,11 @@ export default function WikiPageView() {
   const [notFound, setNotFound] = useState(false);
   const [propsOpen, setPropsOpen] = useState(false);
   const [allPages, setAllPages] = useState<string[]>([]);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportCategory, setReportCategory] = useState<LintCategory>("user_reported");
+  const [reportDescription, setReportDescription] = useState("");
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportMessage, setReportMessage] = useState("");
 
   useEffect(() => {
     const token = localStorage.getItem("sheska_token");
@@ -87,6 +95,27 @@ export default function WikiPageView() {
       setMessage(`Error: ${err.message}`);
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleReport(e: React.FormEvent) {
+    e.preventDefault();
+    if (!reportDescription.trim()) return;
+    setReportSubmitting(true);
+    setReportMessage("");
+    try {
+      await createLintFinding({
+        page_path: pagePath,
+        description: reportDescription,
+        category: reportCategory,
+      });
+      setReportMessage("Reported. Thanks!");
+      setReportDescription("");
+      setTimeout(() => { setReportOpen(false); setReportMessage(""); }, 1500);
+    } catch (err: any) {
+      setReportMessage(`Error: ${err.message}`);
+    } finally {
+      setReportSubmitting(false);
     }
   }
 
@@ -139,12 +168,78 @@ export default function WikiPageView() {
     <div className="min-h-screen">
       <Nav role={role} />
       <div className="max-w-3xl mx-auto p-6">
-        <button
-          onClick={() => router.push("/wiki")}
-          className="text-sm text-gray-500 hover:text-gray-800 mb-4 inline-block"
-        >
-          ← Back to list
-        </button>
+        <div className="flex items-center justify-between mb-4">
+          <button
+            onClick={() => router.push("/wiki")}
+            className="text-sm text-gray-500 hover:text-gray-800 inline-block"
+          >
+            ← Back to list
+          </button>
+          <button
+            onClick={() => setReportOpen(true)}
+            className="text-xs text-gray-500 hover:text-red-600 underline"
+            title="Report an issue with this page"
+          >
+            Report issue
+          </button>
+        </div>
+
+        {reportOpen && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-lg">
+              <h2 className="text-lg font-semibold mb-3">Report an issue</h2>
+              <p className="text-xs text-gray-500 mb-4">
+                Page: <span className="font-mono">{pagePath}</span>
+              </p>
+              <form onSubmit={handleReport} className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1">Category</label>
+                  <select
+                    value={reportCategory}
+                    onChange={(e) => setReportCategory(e.target.value as LintCategory)}
+                    className="w-full border rounded px-2 py-1 text-sm"
+                  >
+                    {LINT_CATEGORIES.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">Description</label>
+                  <textarea
+                    value={reportDescription}
+                    onChange={(e) => setReportDescription(e.target.value)}
+                    rows={4}
+                    placeholder="What is wrong with this page?"
+                    className="w-full border rounded px-2 py-1 text-sm resize-none"
+                    required
+                  />
+                </div>
+                {reportMessage && (
+                  <p className={`text-xs ${reportMessage.startsWith("Error") ? "text-red-500" : "text-green-600"}`}>
+                    {reportMessage}
+                  </p>
+                )}
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setReportOpen(false); setReportMessage(""); }}
+                    className="text-sm px-3 py-1.5 border rounded hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={reportSubmitting || !reportDescription.trim()}
+                    className="text-sm px-3 py-1.5 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                    {reportSubmitting ? "Submitting..." : "Submit report"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         {/* SC-19: read-only body */}
         {/* SC-34: order = body → properties → edit */}
